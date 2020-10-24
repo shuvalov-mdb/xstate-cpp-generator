@@ -1,0 +1,27 @@
+{
+  "name": "xstate-cpp-generator",
+  "version": "1.0.0",
+  "description": "C++ code generator for Xstate State Machine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shuvalov-mdb/xstate-cpp-generator.git"
+  },
+  "keywords": [
+    "c++",
+    "cpp",
+    "xstate",
+    "code",
+    "generator"
+  ],
+  "author": "Andrew Shuvalov",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/shuvalov-mdb/xstate-cpp-generator/issues"
+  },
+  "homepage": "https://github.com/shuvalov-mdb/xstate-cpp-generator#readme"
+}
