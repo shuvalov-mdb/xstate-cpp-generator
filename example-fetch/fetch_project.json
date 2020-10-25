@@ -1,0 +1,6 @@
+{
+    "model": "example-fetch/fetch.json",
+    "model_type": "json",
+    "destination_path": "example-fetch/",
+    "namespace": "mongo"
+}

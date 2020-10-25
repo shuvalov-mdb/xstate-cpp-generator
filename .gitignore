@@ -1,2 +1,4 @@
 example-simple/node_modules
 
+node_modules/
+.sconsign.dblite

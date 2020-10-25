@@ -1,7 +1,7 @@
 {
     "compilerOptions": {
-        "target": "es6",
-        "lib": ["es5", "es6", "dom"],
+        "target": "es2018",
+        "lib": ["es2018", "dom"],
         "moduleResolution": "node",
     },
     "files": [
