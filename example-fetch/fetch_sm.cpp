@@ -4,6 +4,110 @@
 
 namespace mongo {
 
+std::string FetchSMStateToString(FetchSMState state) {
+    switch (state) {
+        case FetchSMState::UNDEFINED_OR_ERROR_STATE:
+            return "UNDEFINED";
+        case FetchSMState::idle:
+            return "FetchSMState::idle";
+        case FetchSMState::loading:
+            return "FetchSMState::loading";
+        case FetchSMState::success:
+            return "FetchSMState::success";
+        case FetchSMState::failure:
+            return "FetchSMState::failure";
+        default:
+            return "ERROR";
+    }
+}
+
+std::ostream& operator << (std::ostream& os, const FetchSMState& state) {
+    os << FetchSMStateToString(state);
+    return os;
+}
+
+
+bool isValidFetchSMState(FetchSMState state) {
+    if (state == FetchSMState::UNDEFINED_OR_ERROR_STATE) { return true; }
+    if (state == FetchSMState::idle) { return true; }
+    if (state == FetchSMState::loading) { return true; }
+    if (state == FetchSMState::success) { return true; }
+    if (state == FetchSMState::failure) { return true; }
+    return false;
+}
+
+std::string FetchSMEventToString(FetchSMEvent event) {
+    switch (event) {
+        case FetchSMEvent::UNDEFINED_OR_ERROR_EVENT:
+            return "UNDEFINED";
+        case FetchSMEvent::FETCH:
+            return "FetchSMEvent::FETCH";
+        case FetchSMEvent::RESOLVE:
+            return "FetchSMEvent::RESOLVE";
+        case FetchSMEvent::REJECT:
+            return "FetchSMEvent::REJECT";
+        case FetchSMEvent::RETRY:
+            return "FetchSMEvent::RETRY";
+        default:
+            return "ERROR";
+    }
+}
+
+bool isValidFetchSMEvent(FetchSMEvent event) {
+    if (event == FetchSMEvent::UNDEFINED_OR_ERROR_EVENT) { return true; }
+    if (event == FetchSMEvent::FETCH) { return true; }
+    if (event == FetchSMEvent::RESOLVE) { return true; }
+    if (event == FetchSMEvent::REJECT) { return true; }
+    if (event == FetchSMEvent::RETRY) { return true; }
+    return false;
+}
+
+std::ostream& operator << (std::ostream& os, const FetchSMEvent& event) {
+    os << FetchSMEventToString(event);
+    return os;
+}
+
+
+// static 
+const std::vector<FetchSM::TransitionToStatesPair>& 
+FetchSM::validTransitionsFromIdleState() {
+    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+        { FetchSMEvent::FETCH, { 
+              FetchSMState::loading           } },
+        };
+    return *transitions;
+}
+
+// static 
+const std::vector<FetchSM::TransitionToStatesPair>& 
+FetchSM::validTransitionsFromLoadingState() {
+    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+        { FetchSMEvent::RESOLVE, { 
+              FetchSMState::success           } },
+        { FetchSMEvent::REJECT, { 
+              FetchSMState::failure           } },
+        };
+    return *transitions;
+}
+
+// static 
+const std::vector<FetchSM::TransitionToStatesPair>& 
+FetchSM::validTransitionsFromSuccessState() {
+    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+        };
+    return *transitions;
+}
+
+// static 
+const std::vector<FetchSM::TransitionToStatesPair>& 
+FetchSM::validTransitionsFromFailureState() {
+    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+        { FetchSMEvent::RETRY, { 
+              FetchSMState::loading           } },
+        };
+    return *transitions;
+}
+
 
 
 

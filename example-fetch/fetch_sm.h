@@ -17,23 +17,35 @@ enum class FetchSMState {
     failure,
 };
 
+std::string FetchSMStateToString(FetchSMState state);
+
 std::ostream& operator << (std::ostream& os, const FetchSMState& state);
 
-// All transitions declared in the SM FetchSM.
-enum class FetchSMTransition {
-    UNDEFINED_OR_ERROR_TRANSITION = 0,
+// @returns true if 'state' is a valid State.
+bool isValidFetchSMState(FetchSMState state);
+
+// All events declared in the SM FetchSM.
+enum class FetchSMEvent {
+    UNDEFINED_OR_ERROR_EVENT = 0,
     FETCH,
     RESOLVE,
     REJECT,
     RETRY,
 };
 
-std::ostream& operator << (std::ostream& os, const FetchSMTransition& transition);
+std::string FetchSMEventToString(FetchSMEvent event);
+
+std::ostream& operator << (std::ostream& os, const FetchSMEvent& event);
+
+// @returns true if 'event' is a valid Event.
+bool isValidFetchSMEvent(FetchSMEvent event);
 
 // State machine as declared in Xstate library for FetchSM.
 class FetchSM {
   public:
-    using TransitionToStatePair = std::tuple<FetchSMTransition, FetchSMState>;
+    // 
+    using TransitionToStatesPair = std::pair<FetchSMEvent,
+            std::vector<FetchSMState>>;
 
     FetchSM();
 
@@ -42,21 +54,21 @@ class FetchSM {
     /**
      * All valid transitions from the current state of the State Machine.
      */
-    const std::vector<TransitionToStatePair>& validTransitionsFromCurrentState();
+    const std::vector<TransitionToStatesPair>& validTransitionsFromCurrentState();
 
     /**
      * All valid transitions from the specified state. The transition to state graph
      * is code genrated from the model and cannot change.
      */
-    static const std::vector<TransitionToStatePair>& validTransitionsFromIdleState();
-    static const std::vector<TransitionToStatePair>& validTransitionsFromLoadingState();
-    static const std::vector<TransitionToStatePair>& validTransitionsFromSuccessState();
-    static const std::vector<TransitionToStatePair>& validTransitionsFromFailureState();
+    static const std::vector<TransitionToStatesPair>& validTransitionsFromIdleState();
+    static const std::vector<TransitionToStatesPair>& validTransitionsFromLoadingState();
+    static const std::vector<TransitionToStatesPair>& validTransitionsFromSuccessState();
+    static const std::vector<TransitionToStatesPair>& validTransitionsFromFailureState();
 
     /**
      * All valid transitions from the specified state.
      */
-    static inline const std::vector<TransitionToStatePair>& validTransitionsFrom(FetchSMState state) {
+    static inline const std::vector<TransitionToStatesPair>& validTransitionsFrom(FetchSMState state) {
         switch (state) {
           case FetchSMState::idle:
             return validTransitionsFromIdleState();

@@ -4,3 +4,4 @@ node_modules/
 .sconsign.dblite
 example-fetch/fetch_test
 example-fetch/fetch_test.o
+example-fetch/fetch_sm.o
