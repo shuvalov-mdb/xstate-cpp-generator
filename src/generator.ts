@@ -3,52 +3,39 @@ const fs = require('fs');
 const Sqrl = require('squirrelly');
 const path = require('path');
 
-import { Machine, MachineConfig } from 'xstate';
+import { Machine, MachineConfig, StateNode, StatesConfig, StateSchema, Event, EventObject } from 'xstate';
+import { CppStateMachineGeneratorProperties } from './cpp_state_machine_generator';
 
 export class Generator {
-    readonly config: string;
-    project: any;
-    model: any;
-    machine: any;
+    readonly properties: CppStateMachineGeneratorProperties;
+    machine: StateNode;
+    outputHeaderShortname: string;
+    outputHeader: string;
+    outputTest: string;
 
-    constructor(config: string) {
-        this.config = config;
+    constructor(properties: CppStateMachineGeneratorProperties) {
+        this.properties = properties;
+        this.machine = properties.xstateMachine;  // Saved for faster access.
+        this.outputHeaderShortname = this.machine.config.id + '_sm.h';
+        this.outputHeader = path.join(this.properties.destinationPath, this.outputHeaderShortname);
+        this.outputTest = path.join(this.properties.destinationPath, this.machine.config.id + '_test.cpp');
     }
 
     generate() {
-        const fileContents = fs.readFileSync(this.config, 'utf8');
-        this.project = JSON.parse(fileContents);
-        if (this.project.model_type == "json") {
-            this.loadXstateModelJson();
-        } else {
-            this.loadXstateModel();
-        }
-        this.project.output_header = path.join(this.project.destination_path, this.machine.config.id + '_sm.h');
-        this.project.output_test = path.join(this.project.destination_path, this.machine.config.id + '_test.cpp');
+        //console.log(this.machine);
+        console.log('\n\n');
         this.genCppFiles();
-    }
-
-    loadXstateModelJson() {
-        console.log('Loading Xstate model from JSON file ' + this.project.model);
-        this.model = JSON.parse(fs.readFileSync(this.project.model, 'utf8'));
-        this.machine = Machine(this.model);
-        console.log(this.machine);
-    }
-
-    loadXstateModel() {
-        console.log('Loading Xstate model from file ' + this.project.model);
-        const fileContents = fs.readFileSync(this.project.model, 'utf8');
     }
 
     genCppFiles() {
         for (const [template, outputFile] of [
-            ['src/base.template.h', this.project.output_header],
-            ['src/test.template.cpp', this.project.output_test],
+            [path.join(__dirname, 'base.template.h'), this.outputHeaderShortname],
+            [path.join(__dirname, 'test.template.cpp'), this.outputTest],
         ] as const) {
             const fileContents = fs.readFileSync(template, 'utf8');
             var result = Sqrl.render(fileContents, {
                 machine: this.machine,
-                project: this.project,
+                properties: this.properties,
                 generator: this
             });
             fs.writeFileSync(outputFile, result);
@@ -59,5 +46,18 @@ export class Generator {
         var name = this.machine.config.id;
         name = name[0].toUpperCase() + name.substr(1).toLowerCase();
         return name + "SM";
+    }
+
+    transitions() {
+        var result = new Set<string>();
+        Object.keys(this.machine.states).forEach(nodeName => {
+            var node = this.machine.states[nodeName];
+            console.log(node.on);
+            Object.keys(node.on).forEach(transitionName => {
+                result.add(transitionName);
+                console.log(transitionName);
+            });
+        });
+        return Array.from(result.values());
     }
 }

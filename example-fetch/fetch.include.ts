@@ -1,9 +1,4 @@
-import { generateCpp }  from '../src/cpp_state_machine_generator';
-
-import { Machine, createMachine, assign } from 'xstate';
-import { generateKeyPair } from 'crypto';
-
-const fetchMachine = Machine({
+{
     id: 'fetch',
     initial: 'idle',
     context: {
@@ -30,11 +25,5 @@ const fetchMachine = Machine({
         }
       }
     }
-  });
-
-generateCpp({
-  xstateMachine: fetchMachine,
-  destinationPath: "",
-  namespace: "mongo",
-  pathForIncludes: "example-fetch",
-});
+  }
+  

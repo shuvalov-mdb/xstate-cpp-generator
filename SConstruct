@@ -1,1 +1,1 @@
-SConscript(['example-fetch/SConstruct'])
+SConscript('example-fetch/SConscript')

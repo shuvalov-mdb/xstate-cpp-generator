@@ -19,4 +19,4 @@ console.log(
 );
 
 let generator = new Gen.Generator(program.project);
-generator.generate()
+generator.generate();

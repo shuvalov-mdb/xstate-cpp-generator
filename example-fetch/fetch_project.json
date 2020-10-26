@@ -1,6 +1,7 @@
 {
-    "model": "example-fetch/fetch.json",
-    "model_type": "json",
+    "model": "example-fetch/fetch.include.ts",
+    "model_type": "include",
     "destination_path": "example-fetch/",
-    "namespace": "mongo"
+    "namespace": "mongo",
+    "headers_path": ""
 }

@@ -1,4 +1,4 @@
-#include "{{it.project.output_header}}"
+#include "{{it.properties.pathForIncludes}}{{it.generator.outputHeaderShortname}}"
 
 #include <gtest/gtest.h>
 

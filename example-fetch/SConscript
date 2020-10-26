@@ -1,0 +1,8 @@
+env = Environment()
+
+LIBS =''
+
+common_libs = ['gtest_main', 'gtest', 'pthread']
+env.Append( LIBS = common_libs )
+
+env.Program('fetch_test', 'fetch_test.cpp', LIBS, LIBPATH='/opt/gtest/lib:/usr/local/lib')
