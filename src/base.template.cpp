@@ -57,6 +57,27 @@ std::ostream& operator << (std::ostream& os, const {{it.generator.class()}}Event
     return os;
 }
 
+std::ostream& operator << (std::ostream& os, const {{it.generator.class()}}TransitionPhase& phase) {
+    switch (phase) {
+    case {{it.generator.class()}}TransitionPhase::LEAVING_STATE:
+        os << "Leaving state ";
+        break;
+    case {{it.generator.class()}}TransitionPhase::ENTERING_STATE:
+        os << "Entering state ";
+        break;
+    case {{it.generator.class()}}TransitionPhase::ENTERED_STATE:
+        os << "Entered state ";
+        break;
+    case {{it.generator.class()}}TransitionPhase::TRANSITION_NOT_FOUND:
+        os << "Transition not found ";
+        break;
+    default:
+        os << "ERROR ";
+        break;
+    }
+    return os;
+}
+
 
 {{@foreach(it.machine.states) => key, val}}
 // static 
@@ -75,7 +96,6 @@ const std::vector<{{it.generator.class()}}TransitionToStatesPair>&
 }
 
 {{/foreach}}
-
 
 
 }  // namespace {{it.properties.namespace }}

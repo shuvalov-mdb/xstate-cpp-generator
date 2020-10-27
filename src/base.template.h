@@ -2,9 +2,11 @@
 
 #pragma once
 
-#include <iostream>
+#include <cassert>
 #include <deque>
 #include <functional>
+#include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <tuple>
@@ -55,6 +57,18 @@ using {{it.generator.class()}}TransitionToStatesPair = std::pair<{{it.generator.
 const std::vector<{{it.generator.class()}}TransitionToStatesPair>& {{it.generator.class()}}ValidTransitionsFrom{{it.generator.capitalize(key)}}State();
 {{/foreach}}
 
+/**
+ * Enum to indicate the current state transition phase in callbacks.
+ */
+enum class {{it.generator.class()}}TransitionPhase { 
+    UNDEFINED = 0,
+    LEAVING_STATE,
+    ENTERING_STATE,
+    ENTERED_STATE,
+    TRANSITION_NOT_FOUND
+};
+
+std::ostream& operator << (std::ostream& os, const {{it.generator.class()}}TransitionPhase& phase);
 
 /**
  * Convenient default SM spec structure to parameterize the State Machine.
@@ -74,7 +88,7 @@ struct Default{{it.generator.class()}}Spec {
      * The type should be movable for efficiency.
      */
 {{@each(it.generator.events()) => val, index}}
-    using Event{{it.generator.capitalize(val)}}Payload = std::nullptr_t;
+    using Event{{it.generator.capitalize(val)}}Payload = std::unique_ptr<std::nullptr_t>;
 {{/each}}
 };
 
@@ -89,6 +103,7 @@ class {{it.generator.class()}} {
     using TransitionToStatesPair = {{it.generator.class()}}TransitionToStatesPair;
     using State = {{it.generator.class()}}State;
     using Event = {{it.generator.class()}}Event;
+    using TransitionPhase = {{it.generator.class()}}TransitionPhase;
 {{@each(it.generator.events()) => val, index}}
     using {{it.generator.capitalize(val)}}Payload = typename SMSpec::Event{{it.generator.capitalize(val)}}Payload;
 {{/each}}
@@ -103,11 +118,15 @@ class {{it.generator.class()}} {
         /** The event that transitioned the SM from previousState to currentState */
         Event lastEvent;
         /** 
-         * The SM can process events only in a serialized way. If this Event Queue is empty, the posted event will be
-         * processed immediately, otherwise it will be posted to the queue and processed by the same thread that is
-         * currently processing the previous Event. Thus each Event is removed from the queue only when it's processed.
+         * The SM can process events only in a serialized way. If this 'blockedForProcessingAnEvent' is false, the posted 
+         * event will be processed immediately, otherwise it will be posted to the queue and processed by the same 
+         * thread that is currently processing the previous Event. 
          * This SM is strictly single-threaded it terms of processing all necessary callbacks, it is using the same 
          * user thread that invoked a 'send Event' method to drain the whole queue.
+         */
+        bool blockedForProcessingAnEvent = false;
+        /** 
+         * The SM can process events only in a serialized way. This queue stores the events to be processed.
          */
         std::deque<std::function<void()>> eventQueue;
         /** Timestamp of the last transition, or the class instantiation if at initial state */
@@ -120,9 +139,18 @@ class {{it.generator.class()}} {
 
     virtual ~{{it.generator.class()}}() {}
 
+    /**
+     * Returns a copy of the current state, skipping some fields.
+     */
     CurrentState currentState() const {
         std::lock_guard<std::mutex> lck(_lock);
-        return _currentState;
+        CurrentState aCopy;  // We will not copy the event queue.
+        aCopy.currentState = _currentState.currentState;
+        aCopy.previousState = _currentState.previousState;
+        aCopy.lastEvent = _currentState.lastEvent;
+        aCopy.totalTransitions = _currentState.totalTransitions;
+        aCopy.lastTransitionTime = _currentState.lastTransitionTime;
+        return aCopy;
     }
 
     /**
@@ -144,6 +172,54 @@ class {{it.generator.class()}} {
     }
 
     /**
+     * The block of virtual callback methods the derived class can override to extend the SM functionality.
+     */
+
+    /**
+     * Overload this method to log or mute the case when the default generated method for entering, entered
+     * or leaving the state is not overloaded. By default it just prints to stdout. The default action is very
+     * useful for the initial development. In production. it's better to replace it with an appropriate
+     * logging or empty method to mute.
+     */
+    virtual void logTransition(TransitionPhase phase, State currentState, State nextState) const;
+
+    /**
+     * 'onLeavingState' callbacks are invoked right before entering a new state. The internal 
+     * '_currentState' data still points to the current state.
+     */
+{{@foreach(it.machine.states) => key, val}}
+    virtual void onLeaving{{it.generator.capitalize(key)}}State(State nextState) const {
+        logTransition({{it.generator.class()}}TransitionPhase::LEAVING_STATE, State::{{key}}, nextState);
+    }
+{{/foreach}}
+
+    /**
+     * 'onEnteringState' callbacks are invoked right before entering a new state. The internal 
+     * '_currentState' data still points to the existing state.
+     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload to override 
+     *   another calback from the 'onEntered*State' below.
+     */
+{{@each(it.generator.allEventToStatePairs()) => pair, index}}
+    virtual void onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(State nextState, {{it.generator.capitalize(pair[0])}}Payload* payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition({{it.generator.class()}}TransitionPhase::ENTERING_STATE, _currentState.currentState, State::{{pair[1]}});
+    }
+{{/each}}
+
+    /**
+     * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal 
+     * '_currentState' data already points to the existing state.
+     * @param payload ownership is transferred to the user.
+     */
+{{@each(it.generator.allEventToStatePairs()) => pair, index}}
+    virtual void onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}({{it.generator.capitalize(pair[0])}}Payload&& payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition({{it.generator.class()}}TransitionPhase::ENTERED_STATE, _currentState.currentState, State::{{pair[1]}});
+    }
+{{/each}}
+
+
+    /**
      * All valid transitions from the specified state.
      */
     static inline const std::vector<TransitionToStatesPair>& validTransitionsFrom({{it.generator.class()}}State state) {
@@ -162,7 +238,15 @@ class {{it.generator.class()}} {
 
   private:
     template<typename Payload>
-    void _postEventHelper (Event event, Payload&& payload);
+    void _postEventHelper(State state, Event event, Payload&& payload);
+
+    void _leavingStateHelper(State fromState, State newState);
+
+    // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
+    void _enteringStateHelper(Event event, State newState, void* payload);
+
+    // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
+    void _enteredStateHelper(Event event, State newState, void* payload);
 
     mutable std::mutex _lock;
 
@@ -174,16 +258,139 @@ class {{it.generator.class()}} {
 {{@each(it.generator.events()) => val, index}}
 template <typename SMSpec>
 inline void {{it.generator.class()}}<SMSpec>::postEvent{{it.generator.capitalize(val)}} ({{it.generator.class()}}::{{it.generator.capitalize(val)}}Payload&& payload) {
-    _postEventHelper({{it.generator.class()}}::Event::{{val}}, std::move(payload));
+    State currentState;
+    {
+        std::lock_guard<std::mutex> lck(_lock);
+        // If the SM is currently processing another event, adds this one to the queue. The thread processing
+        // that event is responsible to drain the queue, this is why we also check for the queue size.
+        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
+            std::function<void()> eventCb{[ this, p{std::make_shared<{{it.generator.capitalize(val)}}Payload>(std::move(payload))} ] () mutable {
+                postEvent{{it.generator.capitalize(val)}} (std::move(*p));
+            }};
+            _currentState.eventQueue.emplace_back(eventCb);
+            return;  // Returns immediately, the event will be posted asynchronously.
+        }
+
+        currentState = _currentState.currentState;
+        _currentState.blockedForProcessingAnEvent = true;
+    }
+    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
+    _postEventHelper(currentState, {{it.generator.class()}}::Event::{{val}}, std::move(payload));
 }
 
 {{/each}}
 
 template<typename SMSpec>
 template<typename Payload>
-void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}}::Event event, Payload&& payload) {
-    std::lock_guard<std::mutex> lck(_lock);
-    const bool processNow = _currentState.eventQueue.empty();
+void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}}::State state, {{it.generator.class()}}::Event event, Payload&& payload) {
+
+    // Step 1: Invoke the guard callback. TODO: implement.
+
+    // Step 2: check if the transition is valid.
+    const std::vector<{{it.generator.class()}}State>* targetStates = nullptr;
+    const std::vector<{{it.generator.class()}}TransitionToStatesPair>& validTransitions = validTransitionsFrom(state);
+    for (const auto& transitionEvent : validTransitions) {
+        if (transitionEvent.first == event) {
+            targetStates = &transitionEvent.second;
+        }
+    }
+    if (targetStates == nullptr || targetStates->empty()) {
+        logTransition(TransitionPhase::TRANSITION_NOT_FOUND, state, state);
+        std::lock_guard<std::mutex> lck(_lock);
+        _currentState.blockedForProcessingAnEvent = false;  // We are done.
+        return;
+    }
+    State newState = (*targetStates)[0];
+
+    // Step 3: Invoke the 'leaving the state' callback.
+    _leavingStateHelper(state, newState);
+
+    // Step 4: Invoke the 'entering the state' callback.
+    _enteringStateHelper(event, newState, &payload);
+
+    {
+        // Step 5: do the transition.
+        std::lock_guard<std::mutex> lck(_lock);
+        _currentState.previousState = _currentState.currentState;
+        _currentState.currentState = newState;
+        _currentState.lastTransitionTime = std::chrono::system_clock::now();
+        _currentState.lastEvent = event;
+        ++_currentState.totalTransitions;
+    }
+
+    // Step 6: Invoke the 'entered the state' callback.
+    _enteredStateHelper(event, newState, &payload);
+
+    std::function<void()> nextCallback;
+    {
+        // Step 7: pick the next event and clear the processing flag.
+        std::lock_guard<std::mutex> lck(_lock);
+        if (!_currentState.eventQueue.empty()) {
+            nextCallback = std::move(_currentState.eventQueue.front());  // Keep the queue not empty.
+            _currentState.eventQueue.front() = nullptr;  // Make sure to signal other threads to not work on this queue.
+        }
+        _currentState.blockedForProcessingAnEvent = false;  // We are done, even though we can have another step.
+    }
+
+    if (nextCallback) {
+        // Step 8: execute the next callback and then remove it from the queue.
+        nextCallback();
+        std::lock_guard<std::mutex> lck(_lock);
+        assert(_currentState.eventQueue.front() == nullptr);
+        _currentState.eventQueue.pop_front();
+    }
+}
+
+template<typename SMSpec>
+void {{it.generator.class()}}<SMSpec>::_leavingStateHelper(State fromState, State newState) {
+    switch (fromState) {
+{{@foreach(it.machine.states) => key, val}}
+    case State::{{key}}:
+        onLeaving{{it.generator.capitalize(key)}}State (newState);
+        break;
+{{/foreach}}
+    }
+}
+
+template<typename SMSpec>
+void {{it.generator.class()}}<SMSpec>::_enteringStateHelper(Event event, State newState, void* payload) {
+{{@each(it.generator.allEventToStatePairs()) => pair, index}}
+    if (event == Event::{{pair[0]}} && newState == State::{{pair[1]}}) {
+        {{it.generator.capitalize(pair[0])}}Payload* typedPayload = static_cast<{{it.generator.capitalize(pair[0])}}Payload*>(payload);
+        onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(newState, typedPayload);
+        return;
+    }
+{{/each}}
+}
+
+template<typename SMSpec>
+void {{it.generator.class()}}<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
+{{@each(it.generator.allEventToStatePairs()) => pair, index}}
+    if (event == Event::{{pair[0]}} && newState == State::{{pair[1]}}) {
+        {{it.generator.capitalize(pair[0])}}Payload* typedPayload = static_cast<{{it.generator.capitalize(pair[0])}}Payload*>(payload);
+        onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(std::move(*typedPayload));
+        return;
+    }
+{{/each}}
+}
+
+template<typename SMSpec>
+void {{it.generator.class()}}<SMSpec>::logTransition(TransitionPhase phase, State currentState, State nextState) const {
+    switch (phase) {
+    case TransitionPhase::LEAVING_STATE:
+        std::cout << phase << currentState << ", transitioning to " << nextState;
+        break;
+    case TransitionPhase::ENTERING_STATE:
+        std::cout << phase << nextState << " from " << currentState;
+        break;
+    case TransitionPhase::ENTERED_STATE:
+        std::cout << phase << currentState;
+        break;
+    default:
+        std::cout << "ERROR ";
+        break;
+    }
+    std::cout << std::endl;
 }
 
 

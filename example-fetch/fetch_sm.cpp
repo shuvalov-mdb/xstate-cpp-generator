@@ -67,6 +67,27 @@ std::ostream& operator << (std::ostream& os, const FetchSMEvent& event) {
     return os;
 }
 
+std::ostream& operator << (std::ostream& os, const FetchSMTransitionPhase& phase) {
+    switch (phase) {
+    case FetchSMTransitionPhase::LEAVING_STATE:
+        os << "Leaving state ";
+        break;
+    case FetchSMTransitionPhase::ENTERING_STATE:
+        os << "Entering state ";
+        break;
+    case FetchSMTransitionPhase::ENTERED_STATE:
+        os << "Entered state ";
+        break;
+    case FetchSMTransitionPhase::TRANSITION_NOT_FOUND:
+        os << "Transition not found ";
+        break;
+    default:
+        os << "ERROR ";
+        break;
+    }
+    return os;
+}
+
 
 // static 
 const std::vector<FetchSMTransitionToStatesPair>& 
@@ -107,7 +128,6 @@ FetchSMValidTransitionsFromFailureState() {
         };
     return *transitions;
 }
-
 
 
 

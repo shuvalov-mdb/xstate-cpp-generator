@@ -24,8 +24,6 @@ export class Generator {
     }
 
     generate() {
-        //console.log(this.machine);
-        console.log('\n\n');
         this.genCppFiles();
     }
 
@@ -70,18 +68,33 @@ export class Generator {
         var stateObj: StateNode<any, any, EventObject> = this.machine.states[state];
         Object.keys(stateObj.on).forEach(eventName => {
             var targetStates = stateObj.on[eventName];
-            console.log('\n\n----------------');
-            console.log(eventName);
-            //console.log(targetStates);
             let targets: string[] = [];
             targetStates.forEach(targetState => {
-                console.log(targetState['target']);
-                console.log(targetState['target'][0]);
                 targets.push(targetState['target'][0].key);
             });
             result.push([eventName, targets]);
         });
 
+        return result;
+    }
+
+    // All unique permutations of { Event, next State } pairs.
+    allEventToStatePairs(): [string, string][] {
+        // Map key is concatenated from {event, state} pair strings.
+        var map: Map<string, [string, string]> = new Map<string, [string, string]>();
+        Object.keys(this.machine.states).forEach(nodeName => {
+            var stateObj: StateNode<any, any, EventObject> = this.machine.states[nodeName];
+            Object.keys(stateObj.on).forEach(eventName => {
+                var targetStates = stateObj.on[eventName];
+                targetStates.forEach(targetState => {
+                    map.set(eventName + targetState['target'][0].key, [eventName, targetState['target'][0].key]);
+                });
+            });
+        });
+        var result: [string, string][] = [];
+        map.forEach((value: [string, string], key: string) => {
+            result.push(value);
+        });
         return result;
     }
 

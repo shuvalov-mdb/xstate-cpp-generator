@@ -2,9 +2,11 @@
 
 #pragma once
 
-#include <iostream>
+#include <cassert>
 #include <deque>
 #include <functional>
+#include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <tuple>
@@ -58,6 +60,18 @@ const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromLoa
 const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromSuccessState();
 const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromFailureState();
 
+/**
+ * Enum to indicate the current state transition phase in callbacks.
+ */
+enum class FetchSMTransitionPhase { 
+    UNDEFINED = 0,
+    LEAVING_STATE,
+    ENTERING_STATE,
+    ENTERED_STATE,
+    TRANSITION_NOT_FOUND
+};
+
+std::ostream& operator << (std::ostream& os, const FetchSMTransitionPhase& phase);
 
 /**
  * Convenient default SM spec structure to parameterize the State Machine.
@@ -76,10 +90,10 @@ struct DefaultFetchSMSpec {
      * Each Event has a payload attached, which is passed in to the related callbacks.
      * The type should be movable for efficiency.
      */
-    using EventFetchPayload = std::nullptr_t;
-    using EventResolvePayload = std::nullptr_t;
-    using EventRejectPayload = std::nullptr_t;
-    using EventRetryPayload = std::nullptr_t;
+    using EventFetchPayload = std::unique_ptr<std::nullptr_t>;
+    using EventResolvePayload = std::unique_ptr<std::nullptr_t>;
+    using EventRejectPayload = std::unique_ptr<std::nullptr_t>;
+    using EventRetryPayload = std::unique_ptr<std::nullptr_t>;
 };
 
 /**
@@ -93,6 +107,7 @@ class FetchSM {
     using TransitionToStatesPair = FetchSMTransitionToStatesPair;
     using State = FetchSMState;
     using Event = FetchSMEvent;
+    using TransitionPhase = FetchSMTransitionPhase;
     using FetchPayload = typename SMSpec::EventFetchPayload;
     using ResolvePayload = typename SMSpec::EventResolvePayload;
     using RejectPayload = typename SMSpec::EventRejectPayload;
@@ -108,11 +123,15 @@ class FetchSM {
         /** The event that transitioned the SM from previousState to currentState */
         Event lastEvent;
         /** 
-         * The SM can process events only in a serialized way. If this Event Queue is empty, the posted event will be
-         * processed immediately, otherwise it will be posted to the queue and processed by the same thread that is
-         * currently processing the previous Event. Thus each Event is removed from the queue only when it's processed.
+         * The SM can process events only in a serialized way. If this 'blockedForProcessingAnEvent' is false, the posted 
+         * event will be processed immediately, otherwise it will be posted to the queue and processed by the same 
+         * thread that is currently processing the previous Event. 
          * This SM is strictly single-threaded it terms of processing all necessary callbacks, it is using the same 
          * user thread that invoked a 'send Event' method to drain the whole queue.
+         */
+        bool blockedForProcessingAnEvent = false;
+        /** 
+         * The SM can process events only in a serialized way. This queue stores the events to be processed.
          */
         std::deque<std::function<void()>> eventQueue;
         /** Timestamp of the last transition, or the class instantiation if at initial state */
@@ -125,9 +144,18 @@ class FetchSM {
 
     virtual ~FetchSM() {}
 
+    /**
+     * Returns a copy of the current state, skipping some fields.
+     */
     CurrentState currentState() const {
         std::lock_guard<std::mutex> lck(_lock);
-        return _currentState;
+        CurrentState aCopy;  // We will not copy the event queue.
+        aCopy.currentState = _currentState.currentState;
+        aCopy.previousState = _currentState.previousState;
+        aCopy.lastEvent = _currentState.lastEvent;
+        aCopy.totalTransitions = _currentState.totalTransitions;
+        aCopy.lastTransitionTime = _currentState.lastTransitionTime;
+        return aCopy;
     }
 
     /**
@@ -148,6 +176,81 @@ class FetchSM {
         std::lock_guard<std::mutex> lck(_lock);
         return validTransitionsFrom(_currentState.currentState);
     }
+
+    /**
+     * The block of virtual callback methods the derived class can override to extend the SM functionality.
+     */
+
+    /**
+     * Overload this method to log or mute the case when the default generated method for entering, entered
+     * or leaving the state is not overloaded. By default it just prints to stdout. The default action is very
+     * useful for the initial development. In production. it's better to replace it with an appropriate
+     * logging or empty method to mute.
+     */
+    virtual void logTransition(TransitionPhase phase, State currentState, State nextState) const;
+
+    /**
+     * 'onLeavingState' callbacks are invoked right before entering a new state. The internal 
+     * '_currentState' data still points to the current state.
+     */
+    virtual void onLeavingIdleState(State nextState) const {
+        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::idle, nextState);
+    }
+    virtual void onLeavingLoadingState(State nextState) const {
+        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::loading, nextState);
+    }
+    virtual void onLeavingSuccessState(State nextState) const {
+        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::success, nextState);
+    }
+    virtual void onLeavingFailureState(State nextState) const {
+        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::failure, nextState);
+    }
+
+    /**
+     * 'onEnteringState' callbacks are invoked right before entering a new state. The internal 
+     * '_currentState' data still points to the existing state.
+     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload to override 
+     *   another calback from the 'onEntered*State' below.
+     */
+    virtual void onEnteringStateLoadingOnFETCH(State nextState, FetchPayload* payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
+    }
+    virtual void onEnteringStateSuccessOnRESOLVE(State nextState, ResolvePayload* payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::success);
+    }
+    virtual void onEnteringStateFailureOnREJECT(State nextState, RejectPayload* payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::failure);
+    }
+    virtual void onEnteringStateLoadingOnRETRY(State nextState, RetryPayload* payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
+    }
+
+    /**
+     * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal 
+     * '_currentState' data already points to the existing state.
+     * @param payload ownership is transferred to the user.
+     */
+    virtual void onEnteredStateLoadingOnFETCH(FetchPayload&& payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
+    }
+    virtual void onEnteredStateSuccessOnRESOLVE(ResolvePayload&& payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::success);
+    }
+    virtual void onEnteredStateFailureOnREJECT(RejectPayload&& payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::failure);
+    }
+    virtual void onEnteredStateLoadingOnRETRY(RetryPayload&& payload) const {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
+    }
+
 
     /**
      * All valid transitions from the specified state.
@@ -172,7 +275,15 @@ class FetchSM {
 
   private:
     template<typename Payload>
-    void _postEventHelper (Event event, Payload&& payload);
+    void _postEventHelper(State state, Event event, Payload&& payload);
+
+    void _leavingStateHelper(State fromState, State newState);
+
+    // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
+    void _enteringStateHelper(Event event, State newState, void* payload);
+
+    // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
+    void _enteredStateHelper(Event event, State newState, void* payload);
 
     mutable std::mutex _lock;
 
@@ -183,30 +294,237 @@ class FetchSM {
 
 template <typename SMSpec>
 inline void FetchSM<SMSpec>::postEventFetch (FetchSM::FetchPayload&& payload) {
-    _postEventHelper(FetchSM::Event::FETCH, std::move(payload));
+    State currentState;
+    {
+        std::lock_guard<std::mutex> lck(_lock);
+        // If the SM is currently processing another event, adds this one to the queue. The thread processing
+        // that event is responsible to drain the queue, this is why we also check for the queue size.
+        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
+            std::function<void()> eventCb{[ this, p{std::make_shared<FetchPayload>(std::move(payload))} ] () mutable {
+                postEventFetch (std::move(*p));
+            }};
+            _currentState.eventQueue.emplace_back(eventCb);
+            return;  // Returns immediately, the event will be posted asynchronously.
+        }
+
+        currentState = _currentState.currentState;
+        _currentState.blockedForProcessingAnEvent = true;
+    }
+    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
+    _postEventHelper(currentState, FetchSM::Event::FETCH, std::move(payload));
 }
 
 template <typename SMSpec>
 inline void FetchSM<SMSpec>::postEventResolve (FetchSM::ResolvePayload&& payload) {
-    _postEventHelper(FetchSM::Event::RESOLVE, std::move(payload));
+    State currentState;
+    {
+        std::lock_guard<std::mutex> lck(_lock);
+        // If the SM is currently processing another event, adds this one to the queue. The thread processing
+        // that event is responsible to drain the queue, this is why we also check for the queue size.
+        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
+            std::function<void()> eventCb{[ this, p{std::make_shared<ResolvePayload>(std::move(payload))} ] () mutable {
+                postEventResolve (std::move(*p));
+            }};
+            _currentState.eventQueue.emplace_back(eventCb);
+            return;  // Returns immediately, the event will be posted asynchronously.
+        }
+
+        currentState = _currentState.currentState;
+        _currentState.blockedForProcessingAnEvent = true;
+    }
+    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
+    _postEventHelper(currentState, FetchSM::Event::RESOLVE, std::move(payload));
 }
 
 template <typename SMSpec>
 inline void FetchSM<SMSpec>::postEventReject (FetchSM::RejectPayload&& payload) {
-    _postEventHelper(FetchSM::Event::REJECT, std::move(payload));
+    State currentState;
+    {
+        std::lock_guard<std::mutex> lck(_lock);
+        // If the SM is currently processing another event, adds this one to the queue. The thread processing
+        // that event is responsible to drain the queue, this is why we also check for the queue size.
+        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
+            std::function<void()> eventCb{[ this, p{std::make_shared<RejectPayload>(std::move(payload))} ] () mutable {
+                postEventReject (std::move(*p));
+            }};
+            _currentState.eventQueue.emplace_back(eventCb);
+            return;  // Returns immediately, the event will be posted asynchronously.
+        }
+
+        currentState = _currentState.currentState;
+        _currentState.blockedForProcessingAnEvent = true;
+    }
+    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
+    _postEventHelper(currentState, FetchSM::Event::REJECT, std::move(payload));
 }
 
 template <typename SMSpec>
 inline void FetchSM<SMSpec>::postEventRetry (FetchSM::RetryPayload&& payload) {
-    _postEventHelper(FetchSM::Event::RETRY, std::move(payload));
+    State currentState;
+    {
+        std::lock_guard<std::mutex> lck(_lock);
+        // If the SM is currently processing another event, adds this one to the queue. The thread processing
+        // that event is responsible to drain the queue, this is why we also check for the queue size.
+        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
+            std::function<void()> eventCb{[ this, p{std::make_shared<RetryPayload>(std::move(payload))} ] () mutable {
+                postEventRetry (std::move(*p));
+            }};
+            _currentState.eventQueue.emplace_back(eventCb);
+            return;  // Returns immediately, the event will be posted asynchronously.
+        }
+
+        currentState = _currentState.currentState;
+        _currentState.blockedForProcessingAnEvent = true;
+    }
+    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
+    _postEventHelper(currentState, FetchSM::Event::RETRY, std::move(payload));
 }
 
 
 template<typename SMSpec>
 template<typename Payload>
-void FetchSM<SMSpec>::_postEventHelper (FetchSM::Event event, Payload&& payload) {
-    std::lock_guard<std::mutex> lck(_lock);
-    const bool processNow = _currentState.eventQueue.empty();
+void FetchSM<SMSpec>::_postEventHelper (FetchSM::State state, FetchSM::Event event, Payload&& payload) {
+
+    // Step 1: Invoke the guard callback. TODO: implement.
+
+    // Step 2: check if the transition is valid.
+    const std::vector<FetchSMState>* targetStates = nullptr;
+    const std::vector<FetchSMTransitionToStatesPair>& validTransitions = validTransitionsFrom(state);
+    for (const auto& transitionEvent : validTransitions) {
+        if (transitionEvent.first == event) {
+            targetStates = &transitionEvent.second;
+        }
+    }
+    if (targetStates == nullptr || targetStates->empty()) {
+        logTransition(TransitionPhase::TRANSITION_NOT_FOUND, state, state);
+        std::lock_guard<std::mutex> lck(_lock);
+        _currentState.blockedForProcessingAnEvent = false;  // We are done.
+        return;
+    }
+    State newState = (*targetStates)[0];
+
+    // Step 3: Invoke the 'leaving the state' callback.
+    _leavingStateHelper(state, newState);
+
+    // Step 4: Invoke the 'entering the state' callback.
+    _enteringStateHelper(event, newState, &payload);
+
+    {
+        // Step 5: do the transition.
+        std::lock_guard<std::mutex> lck(_lock);
+        _currentState.previousState = _currentState.currentState;
+        _currentState.currentState = newState;
+        _currentState.lastTransitionTime = std::chrono::system_clock::now();
+        _currentState.lastEvent = event;
+        ++_currentState.totalTransitions;
+    }
+
+    // Step 6: Invoke the 'entered the state' callback.
+    _enteredStateHelper(event, newState, &payload);
+
+    std::function<void()> nextCallback;
+    {
+        // Step 7: pick the next event and clear the processing flag.
+        std::lock_guard<std::mutex> lck(_lock);
+        if (!_currentState.eventQueue.empty()) {
+            nextCallback = std::move(_currentState.eventQueue.front());  // Keep the queue not empty.
+            _currentState.eventQueue.front() = nullptr;  // Make sure to signal other threads to not work on this queue.
+        }
+        _currentState.blockedForProcessingAnEvent = false;  // We are done, even though we can have another step.
+    }
+
+    if (nextCallback) {
+        // Step 8: execute the next callback and then remove it from the queue.
+        nextCallback();
+        std::lock_guard<std::mutex> lck(_lock);
+        assert(_currentState.eventQueue.front() == nullptr);
+        _currentState.eventQueue.pop_front();
+    }
+}
+
+template<typename SMSpec>
+void FetchSM<SMSpec>::_leavingStateHelper(State fromState, State newState) {
+    switch (fromState) {
+    case State::idle:
+        onLeavingIdleState (newState);
+        break;
+    case State::loading:
+        onLeavingLoadingState (newState);
+        break;
+    case State::success:
+        onLeavingSuccessState (newState);
+        break;
+    case State::failure:
+        onLeavingFailureState (newState);
+        break;
+    }
+}
+
+template<typename SMSpec>
+void FetchSM<SMSpec>::_enteringStateHelper(Event event, State newState, void* payload) {
+    if (event == Event::FETCH && newState == State::loading) {
+        FetchPayload* typedPayload = static_cast<FetchPayload*>(payload);
+        onEnteringStateLoadingOnFETCH(newState, typedPayload);
+        return;
+    }
+    if (event == Event::RESOLVE && newState == State::success) {
+        ResolvePayload* typedPayload = static_cast<ResolvePayload*>(payload);
+        onEnteringStateSuccessOnRESOLVE(newState, typedPayload);
+        return;
+    }
+    if (event == Event::REJECT && newState == State::failure) {
+        RejectPayload* typedPayload = static_cast<RejectPayload*>(payload);
+        onEnteringStateFailureOnREJECT(newState, typedPayload);
+        return;
+    }
+    if (event == Event::RETRY && newState == State::loading) {
+        RetryPayload* typedPayload = static_cast<RetryPayload*>(payload);
+        onEnteringStateLoadingOnRETRY(newState, typedPayload);
+        return;
+    }
+}
+
+template<typename SMSpec>
+void FetchSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
+    if (event == Event::FETCH && newState == State::loading) {
+        FetchPayload* typedPayload = static_cast<FetchPayload*>(payload);
+        onEnteredStateLoadingOnFETCH(std::move(*typedPayload));
+        return;
+    }
+    if (event == Event::RESOLVE && newState == State::success) {
+        ResolvePayload* typedPayload = static_cast<ResolvePayload*>(payload);
+        onEnteredStateSuccessOnRESOLVE(std::move(*typedPayload));
+        return;
+    }
+    if (event == Event::REJECT && newState == State::failure) {
+        RejectPayload* typedPayload = static_cast<RejectPayload*>(payload);
+        onEnteredStateFailureOnREJECT(std::move(*typedPayload));
+        return;
+    }
+    if (event == Event::RETRY && newState == State::loading) {
+        RetryPayload* typedPayload = static_cast<RetryPayload*>(payload);
+        onEnteredStateLoadingOnRETRY(std::move(*typedPayload));
+        return;
+    }
+}
+
+template<typename SMSpec>
+void FetchSM<SMSpec>::logTransition(TransitionPhase phase, State currentState, State nextState) const {
+    switch (phase) {
+    case TransitionPhase::LEAVING_STATE:
+        std::cout << phase << currentState << ", transitioning to " << nextState;
+        break;
+    case TransitionPhase::ENTERING_STATE:
+        std::cout << phase << nextState << " from " << currentState;
+        break;
+    case TransitionPhase::ENTERED_STATE:
+        std::cout << phase << currentState;
+        break;
+    default:
+        std::cout << "ERROR ";
+        break;
+    }
+    std::cout << std::endl;
 }
 
 

@@ -6,4 +6,5 @@ common_libs = ['gtest_main', 'gtest', 'pthread']
 env.Append( LIBS = common_libs )
 env.Append( CPPPATH = ['../'])
 
-env.Program('fetch_test', ['fetch_sm.cpp', 'fetch_test.cpp'], LIBS, LIBPATH='/opt/gtest/lib:/usr/local/lib')
+env.Program('fetch_test', ['fetch_sm.cpp', 'fetch_test.cpp'], 
+            LIBS, LIBPATH='/opt/gtest/lib:/usr/local/lib', CXXFLAGS="-std=c++17")
