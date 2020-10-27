@@ -69,9 +69,9 @@ std::ostream& operator << (std::ostream& os, const FetchSMEvent& event) {
 
 
 // static 
-const std::vector<FetchSM::TransitionToStatesPair>& 
-FetchSM::validTransitionsFromIdleState() {
-    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+const std::vector<FetchSMTransitionToStatesPair>& 
+FetchSMValidTransitionsFromIdleState() {
+    static const auto* transitions = new const std::vector<FetchSMTransitionToStatesPair> {
         { FetchSMEvent::FETCH, { 
               FetchSMState::loading           } },
         };
@@ -79,9 +79,9 @@ FetchSM::validTransitionsFromIdleState() {
 }
 
 // static 
-const std::vector<FetchSM::TransitionToStatesPair>& 
-FetchSM::validTransitionsFromLoadingState() {
-    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+const std::vector<FetchSMTransitionToStatesPair>& 
+FetchSMValidTransitionsFromLoadingState() {
+    static const auto* transitions = new const std::vector<FetchSMTransitionToStatesPair> {
         { FetchSMEvent::RESOLVE, { 
               FetchSMState::success           } },
         { FetchSMEvent::REJECT, { 
@@ -91,17 +91,17 @@ FetchSM::validTransitionsFromLoadingState() {
 }
 
 // static 
-const std::vector<FetchSM::TransitionToStatesPair>& 
-FetchSM::validTransitionsFromSuccessState() {
-    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+const std::vector<FetchSMTransitionToStatesPair>& 
+FetchSMValidTransitionsFromSuccessState() {
+    static const auto* transitions = new const std::vector<FetchSMTransitionToStatesPair> {
         };
     return *transitions;
 }
 
 // static 
-const std::vector<FetchSM::TransitionToStatesPair>& 
-FetchSM::validTransitionsFromFailureState() {
-    static const auto* transitions = new const std::vector<FetchSM::TransitionToStatesPair> {
+const std::vector<FetchSMTransitionToStatesPair>& 
+FetchSMValidTransitionsFromFailureState() {
+    static const auto* transitions = new const std::vector<FetchSMTransitionToStatesPair> {
         { FetchSMEvent::RETRY, { 
               FetchSMState::loading           } },
         };

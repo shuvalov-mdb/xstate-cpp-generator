@@ -84,4 +84,11 @@ export class Generator {
 
         return result;
     }
+
+    initialState(): string {
+        if (this.machine.initial != null) {
+            return this.machine.initial.toString();
+        }
+        return "ERROR";
+    }
 }

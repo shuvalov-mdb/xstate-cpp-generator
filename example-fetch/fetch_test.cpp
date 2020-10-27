@@ -9,30 +9,50 @@ namespace {
 
 TEST(StaticSMTests, TransitionsInfo) {
     {
-        auto transitions = FetchSM::validTransitionsFromIdleState();
+        auto transitions = FetchSMValidTransitionsFromIdleState();
         for (const auto& transition : transitions) {
             EXPECT_TRUE(isValidFetchSMEvent(transition.first));
         }
     }
     {
-        auto transitions = FetchSM::validTransitionsFromLoadingState();
+        auto transitions = FetchSMValidTransitionsFromLoadingState();
         for (const auto& transition : transitions) {
             EXPECT_TRUE(isValidFetchSMEvent(transition.first));
         }
     }
     {
-        auto transitions = FetchSM::validTransitionsFromSuccessState();
+        auto transitions = FetchSMValidTransitionsFromSuccessState();
         for (const auto& transition : transitions) {
             EXPECT_TRUE(isValidFetchSMEvent(transition.first));
         }
     }
     {
-        auto transitions = FetchSM::validTransitionsFromFailureState();
+        auto transitions = FetchSMValidTransitionsFromFailureState();
         for (const auto& transition : transitions) {
             EXPECT_TRUE(isValidFetchSMEvent(transition.first));
         }
+    }
+}
+
+class SMTestFixture : public ::testing::Test {
+  public:
+    void SetUp() override {
+        _sm.reset(new FetchSM<>());
     }
 
+    std::unique_ptr<FetchSM<>> _sm;
+};
+
+TEST_F(SMTestFixture, State) {
+    int count = 0;
+    for (; count < 10; ++count) {
+        auto currentState = _sm->currentState();
+        auto validTransitions = _sm->validTransitionsFromCurrentState();
+        if (validTransitions.empty()) {
+            break;
+        }
+        const FetchSMTransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
+    }
 }
 
 }  // namespace

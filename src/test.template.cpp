@@ -10,13 +10,33 @@ namespace {
 TEST(StaticSMTests, TransitionsInfo) {
 {{@foreach(it.machine.states) => key, val}}
     {
-        auto transitions = {{it.generator.class()}}::validTransitionsFrom{{it.generator.capitalize(key)}}State();
+        auto transitions = {{it.generator.class()}}ValidTransitionsFrom{{it.generator.capitalize(key)}}State();
         for (const auto& transition : transitions) {
             EXPECT_TRUE(isValid{{it.generator.class()}}Event(transition.first));
         }
     }
 {{/foreach}}
+}
 
+class SMTestFixture : public ::testing::Test {
+  public:
+    void SetUp() override {
+        _sm.reset(new {{it.generator.class()}}<>());
+    }
+
+    std::unique_ptr<{{it.generator.class()}}<>> _sm;
+};
+
+TEST_F(SMTestFixture, State) {
+    int count = 0;
+    for (; count < 10; ++count) {
+        auto currentState = _sm->currentState();
+        auto validTransitions = _sm->validTransitionsFromCurrentState();
+        if (validTransitions.empty()) {
+            break;
+        }
+        const {{it.generator.class()}}TransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
+    }
 }
 
 }  // namespace

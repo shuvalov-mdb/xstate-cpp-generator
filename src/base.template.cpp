@@ -60,9 +60,9 @@ std::ostream& operator << (std::ostream& os, const {{it.generator.class()}}Event
 
 {{@foreach(it.machine.states) => key, val}}
 // static 
-const std::vector<{{it.generator.class()}}::TransitionToStatesPair>& 
-{{it.generator.class()}}::validTransitionsFrom{{it.generator.capitalize(key)}}State() {
-    static const auto* transitions = new const std::vector<{{it.generator.class()}}::TransitionToStatesPair> {
+const std::vector<{{it.generator.class()}}TransitionToStatesPair>& 
+{{it.generator.class()}}ValidTransitionsFrom{{it.generator.capitalize(key)}}State() {
+    static const auto* transitions = new const std::vector<{{it.generator.class()}}TransitionToStatesPair> {
     {{@each(it.generator.transitionsForState(key)) => pair, index}}
     { {{it.generator.class()}}Event::{{pair[0]}}, { 
       {{@each(pair[1]) => target, index}}
