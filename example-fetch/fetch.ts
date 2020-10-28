@@ -1,7 +1,7 @@
 import { generateCpp }  from '../src/cpp_state_machine_generator';
+const path = require('path');
 
 import { Machine, createMachine, assign } from 'xstate';
-import { generateKeyPair } from 'crypto';
 
 const fetchMachine = Machine({
     id: 'fetch',
@@ -37,4 +37,5 @@ generateCpp({
   destinationPath: "",
   namespace: "mongo",
   pathForIncludes: "example-fetch",
+  tsScriptName: path.basename(__filename)
 });

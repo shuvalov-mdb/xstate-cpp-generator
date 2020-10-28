@@ -1,4 +1,10 @@
-// This is an automatically generated header, do not edit.
+/** 
+ * This header is automatically generated using the Xstate to C++ code generator:
+ *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
+ *
+ * Please do not edit. If changes are needed, regenerate using the TypeScript template '{{it.properties.tsScriptName}}'.
+ * Generated at {{it.generator.annotation()}}.
+ */
 
 #pragma once
 
@@ -172,7 +178,15 @@ class {{it.generator.class()}} {
     }
 
     /**
+     * Provides a mechanism to access the internal user-defined Context (see SMSpec::StateMachineContext).
+     * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
+     *   can be invoked concurrently from any thread and any of the callbacks declared below.
+     */
+    void accessContextLocked(std::function<void(SMSpec::StateMachineContext& userContext)> callback);
+
+    /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
+     * All callbacks are invoked without holding the internal lock, thus it is allowed to call SM methods from inside.
      */
 
     /**
@@ -196,8 +210,8 @@ class {{it.generator.class()}} {
     /**
      * 'onEnteringState' callbacks are invoked right before entering a new state. The internal 
      * '_currentState' data still points to the existing state.
-     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload to override 
-     *   another calback from the 'onEntered*State' below.
+     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
+     *   override another calback from the 'onEntered*State' below.
      */
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
     virtual void onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(State nextState, {{it.generator.capitalize(pair[0])}}Payload* payload) const {
@@ -209,6 +223,8 @@ class {{it.generator.class()}} {
     /**
      * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal 
      * '_currentState' data already points to the existing state.
+     * It is guaranteed that the next transition will not start until this callback returns.
+     * It is safe to call postEvent*() to trigger the next transition from this method.
      * @param payload ownership is transferred to the user.
      */
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
@@ -254,6 +270,8 @@ class {{it.generator.class()}} {
     // Arbitrary user-defined data structure, see above.
     typename SMSpec::StateMachineContext _context;
 };
+
+/******   Internal implementation  ******/
 
 {{@each(it.generator.events()) => val, index}}
 template <typename SMSpec>

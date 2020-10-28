@@ -1,4 +1,10 @@
-// This is an automatically generated header, do not edit.
+/** 
+ * This header is automatically generated using the Xstate to C++ code generator:
+ *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
+ *
+ * Please do not edit. If changes are needed, regenerate using the TypeScript template 'fetch.ts'.
+ * Generated at Tue Oct 27 2020 23:37:57 GMT+0000 (UTC).
+ */
 
 #pragma once
 
@@ -178,7 +184,15 @@ class FetchSM {
     }
 
     /**
+     * Provides a mechanism to access the internal user-defined Context (see SMSpec::StateMachineContext).
+     * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
+     *   can be invoked concurrently from any thread and any of the callbacks declared below.
+     */
+    void accessContextLocked(std::function<void(SMSpec::StateMachineContext& userContext)> callback);
+
+    /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
+     * All callbacks are invoked without holding the internal lock, thus it is allowed to call SM methods from inside.
      */
 
     /**
@@ -209,8 +223,8 @@ class FetchSM {
     /**
      * 'onEnteringState' callbacks are invoked right before entering a new state. The internal 
      * '_currentState' data still points to the existing state.
-     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload to override 
-     *   another calback from the 'onEntered*State' below.
+     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
+     *   override another calback from the 'onEntered*State' below.
      */
     virtual void onEnteringStateLoadingOnFETCH(State nextState, FetchPayload* payload) const {
         std::lock_guard<std::mutex> lck(_lock);
@@ -232,6 +246,8 @@ class FetchSM {
     /**
      * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal 
      * '_currentState' data already points to the existing state.
+     * It is guaranteed that the next transition will not start until this callback returns.
+     * It is safe to call postEvent*() to trigger the next transition from this method.
      * @param payload ownership is transferred to the user.
      */
     virtual void onEnteredStateLoadingOnFETCH(FetchPayload&& payload) const {
@@ -291,6 +307,8 @@ class FetchSM {
     // Arbitrary user-defined data structure, see above.
     typename SMSpec::StateMachineContext _context;
 };
+
+/******   Internal implementation  ******/
 
 template <typename SMSpec>
 inline void FetchSM<SMSpec>::postEventFetch (FetchSM::FetchPayload&& payload) {

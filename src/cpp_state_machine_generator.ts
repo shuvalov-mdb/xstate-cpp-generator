@@ -10,6 +10,8 @@ export interface CppStateMachineGeneratorProperties {
     namespace: string;
     /** When the generated .cpp files need to include the generated headers, this path will be used. */
     pathForIncludes: string;
+    /** Name of the script containing the model for better logging */
+    tsScriptName?: string;
 }
 
 export function generateCpp(properties: CppStateMachineGeneratorProperties) {
