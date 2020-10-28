@@ -1,4 +1,7 @@
-// This is an automatically generated code, do not edit.
+/** 
+ * This code is automatically generated using the Xstate to C++ code generator:
+ *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
+ */
 
 #include "example-fetch/fetch_sm.h"
 

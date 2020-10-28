@@ -3,7 +3,7 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template 'fetch.ts'.
- * Generated at Tue Oct 27 2020 23:37:57 GMT+0000 (UTC).
+ * Generated at Wed Oct 28 2020 14:55:23 GMT+0000 (UTC).
  */
 
 #pragma once
@@ -67,7 +67,8 @@ const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromSuc
 const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromFailureState();
 
 /**
- * Enum to indicate the current state transition phase in callbacks.
+ * Enum to indicate the current state transition phase in callbacks. This enum is used only for logging
+ * and is not part of any State Machine logic.
  */
 enum class FetchSMTransitionPhase { 
     UNDEFINED = 0,
@@ -106,6 +107,25 @@ struct DefaultFetchSMSpec {
  *  State machine as declared in Xstate library for FetchSM.
  *  SMSpec is a convenient template struct, which allows to specify various definitions used by generated code. In a simple
  *  case it's not needed and a convenient default is provided.
+ * 
+ *  State Machine is not an abstract class and can be used without subclassing at all,
+ *  though its functionality will be limited in terms of callbacks.
+ *  Even though it's a templated class, a default SMSpec is provided to make a simple
+ *  State Machine without any customization. In the most simple form, a working 
+ *  FetchSM SM instance can be instantiated and used as in this example:
+ * 
+ *    FetchSM<> machine;
+ *    auto currentState = machine.currentState();
+ *    FetchSM<>::FetchPayload payloadFETCH;      // ..and init payload with data
+ *    machine.postEventFetch (std::move(payloadFETCH));
+ *    FetchSM<>::ResolvePayload payloadRESOLVE;      // ..and init payload with data
+ *    machine.postEventResolve (std::move(payloadRESOLVE));
+ *    FetchSM<>::RejectPayload payloadREJECT;      // ..and init payload with data
+ *    machine.postEventReject (std::move(payloadREJECT));
+ *    FetchSM<>::RetryPayload payloadRETRY;      // ..and init payload with data
+ *    machine.postEventRetry (std::move(payloadRETRY));
+ * 
+ *  Also see the generated unit tests in the example-* folders for more example code.
  */
 template <typename SMSpec = DefaultFetchSMSpec<std::nullptr_t>>
 class FetchSM {
@@ -114,6 +134,7 @@ class FetchSM {
     using State = FetchSMState;
     using Event = FetchSMEvent;
     using TransitionPhase = FetchSMTransitionPhase;
+    using StateMachineContext = typename SMSpec::StateMachineContext;
     using FetchPayload = typename SMSpec::EventFetchPayload;
     using ResolvePayload = typename SMSpec::EventResolvePayload;
     using RejectPayload = typename SMSpec::EventRejectPayload;
@@ -188,7 +209,7 @@ class FetchSM {
      * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
      *   can be invoked concurrently from any thread and any of the callbacks declared below.
      */
-    void accessContextLocked(std::function<void(SMSpec::StateMachineContext& userContext)> callback);
+    void accessContextLocked(std::function<void(StateMachineContext& userContext)> callback);
 
     /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
@@ -207,16 +228,16 @@ class FetchSM {
      * 'onLeavingState' callbacks are invoked right before entering a new state. The internal 
      * '_currentState' data still points to the current state.
      */
-    virtual void onLeavingIdleState(State nextState) const {
+    virtual void onLeavingIdleState(State nextState) {
         logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::idle, nextState);
     }
-    virtual void onLeavingLoadingState(State nextState) const {
+    virtual void onLeavingLoadingState(State nextState) {
         logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::loading, nextState);
     }
-    virtual void onLeavingSuccessState(State nextState) const {
+    virtual void onLeavingSuccessState(State nextState) {
         logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::success, nextState);
     }
-    virtual void onLeavingFailureState(State nextState) const {
+    virtual void onLeavingFailureState(State nextState) {
         logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::failure, nextState);
     }
 
@@ -226,19 +247,19 @@ class FetchSM {
      * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
      *   override another calback from the 'onEntered*State' below.
      */
-    virtual void onEnteringStateLoadingOnFETCH(State nextState, FetchPayload* payload) const {
+    virtual void onEnteringStateLoadingOnFETCH(State nextState, FetchPayload* payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
     }
-    virtual void onEnteringStateSuccessOnRESOLVE(State nextState, ResolvePayload* payload) const {
+    virtual void onEnteringStateSuccessOnRESOLVE(State nextState, ResolvePayload* payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::success);
     }
-    virtual void onEnteringStateFailureOnREJECT(State nextState, RejectPayload* payload) const {
+    virtual void onEnteringStateFailureOnREJECT(State nextState, RejectPayload* payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::failure);
     }
-    virtual void onEnteringStateLoadingOnRETRY(State nextState, RetryPayload* payload) const {
+    virtual void onEnteringStateLoadingOnRETRY(State nextState, RetryPayload* payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
     }
@@ -250,19 +271,19 @@ class FetchSM {
      * It is safe to call postEvent*() to trigger the next transition from this method.
      * @param payload ownership is transferred to the user.
      */
-    virtual void onEnteredStateLoadingOnFETCH(FetchPayload&& payload) const {
+    virtual void onEnteredStateLoadingOnFETCH(FetchPayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
     }
-    virtual void onEnteredStateSuccessOnRESOLVE(ResolvePayload&& payload) const {
+    virtual void onEnteredStateSuccessOnRESOLVE(ResolvePayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::success);
     }
-    virtual void onEnteredStateFailureOnREJECT(RejectPayload&& payload) const {
+    virtual void onEnteredStateFailureOnREJECT(RejectPayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::failure);
     }
-    virtual void onEnteredStateLoadingOnRETRY(RetryPayload&& payload) const {
+    virtual void onEnteredStateLoadingOnRETRY(RetryPayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
     }
@@ -524,6 +545,12 @@ void FetchSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* pay
         onEnteredStateLoadingOnRETRY(std::move(*typedPayload));
         return;
     }
+}
+
+template<typename SMSpec>
+void FetchSM<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
+    std::lock_guard<std::mutex> lck(_lock);
+    callback(_context);  // User can modify the context under lock.
 }
 
 template<typename SMSpec>

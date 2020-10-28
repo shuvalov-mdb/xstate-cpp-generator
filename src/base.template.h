@@ -64,7 +64,8 @@ const std::vector<{{it.generator.class()}}TransitionToStatesPair>& {{it.generato
 {{/foreach}}
 
 /**
- * Enum to indicate the current state transition phase in callbacks.
+ * Enum to indicate the current state transition phase in callbacks. This enum is used only for logging
+ * and is not part of any State Machine logic.
  */
 enum class {{it.generator.class()}}TransitionPhase { 
     UNDEFINED = 0,
@@ -102,6 +103,21 @@ struct Default{{it.generator.class()}}Spec {
  *  State machine as declared in Xstate library for {{it.generator.class()}}.
  *  SMSpec is a convenient template struct, which allows to specify various definitions used by generated code. In a simple
  *  case it's not needed and a convenient default is provided.
+ * 
+ *  State Machine is not an abstract class and can be used without subclassing at all,
+ *  though its functionality will be limited in terms of callbacks.
+ *  Even though it's a templated class, a default SMSpec is provided to make a simple
+ *  State Machine without any customization. In the most simple form, a working 
+ *  {{it.generator.class()}} SM instance can be instantiated and used as in this example:
+ * 
+ *    {{it.generator.class()}}<> machine;
+ *    auto currentState = machine.currentState();
+{{@each(it.generator.events()) => val, index}}
+ *    {{it.generator.class()}}<>::{{it.generator.capitalize(val)}}Payload payload{{val}};      // ..and init payload with data
+ *    machine.postEvent{{it.generator.capitalize(val)}} (std::move(payload{{val}}));
+{{/each}}
+ * 
+ *  Also see the generated unit tests in the example-* folders for more example code.
  */
 template <typename SMSpec = Default{{it.generator.class()}}Spec<std::nullptr_t>>
 class {{it.generator.class()}} {
@@ -110,6 +126,7 @@ class {{it.generator.class()}} {
     using State = {{it.generator.class()}}State;
     using Event = {{it.generator.class()}}Event;
     using TransitionPhase = {{it.generator.class()}}TransitionPhase;
+    using StateMachineContext = typename SMSpec::StateMachineContext;
 {{@each(it.generator.events()) => val, index}}
     using {{it.generator.capitalize(val)}}Payload = typename SMSpec::Event{{it.generator.capitalize(val)}}Payload;
 {{/each}}
@@ -182,7 +199,7 @@ class {{it.generator.class()}} {
      * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
      *   can be invoked concurrently from any thread and any of the callbacks declared below.
      */
-    void accessContextLocked(std::function<void(SMSpec::StateMachineContext& userContext)> callback);
+    void accessContextLocked(std::function<void(StateMachineContext& userContext)> callback);
 
     /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
@@ -202,7 +219,7 @@ class {{it.generator.class()}} {
      * '_currentState' data still points to the current state.
      */
 {{@foreach(it.machine.states) => key, val}}
-    virtual void onLeaving{{it.generator.capitalize(key)}}State(State nextState) const {
+    virtual void onLeaving{{it.generator.capitalize(key)}}State(State nextState) {
         logTransition({{it.generator.class()}}TransitionPhase::LEAVING_STATE, State::{{key}}, nextState);
     }
 {{/foreach}}
@@ -214,7 +231,7 @@ class {{it.generator.class()}} {
      *   override another calback from the 'onEntered*State' below.
      */
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
-    virtual void onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(State nextState, {{it.generator.capitalize(pair[0])}}Payload* payload) const {
+    virtual void onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(State nextState, {{it.generator.capitalize(pair[0])}}Payload* payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition({{it.generator.class()}}TransitionPhase::ENTERING_STATE, _currentState.currentState, State::{{pair[1]}});
     }
@@ -228,7 +245,7 @@ class {{it.generator.class()}} {
      * @param payload ownership is transferred to the user.
      */
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
-    virtual void onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}({{it.generator.capitalize(pair[0])}}Payload&& payload) const {
+    virtual void onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}({{it.generator.capitalize(pair[0])}}Payload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition({{it.generator.class()}}TransitionPhase::ENTERED_STATE, _currentState.currentState, State::{{pair[1]}});
     }
@@ -390,6 +407,12 @@ void {{it.generator.class()}}<SMSpec>::_enteredStateHelper(Event event, State ne
         return;
     }
 {{/each}}
+}
+
+template<typename SMSpec>
+void {{it.generator.class()}}<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
+    std::lock_guard<std::mutex> lck(_lock);
+    callback(_context);  // User can modify the context under lock.
 }
 
 template<typename SMSpec>

@@ -9,6 +9,7 @@ Copyright Andrew Shuvalov, MIT [License](https://github.com/shuvalov-mdb/xstate-
 ## Features
 
 * Design and test the State Machine in [Xstate](https://github.com/davidkpiano/xstate) and then convert to C++ without any changes
+  * Use the [online vizualizer](https://xstate.js.org/viz/) to debug the State Machine
 * SM basics: [States](https://xstate.js.org/docs/guides/states.html), [Events](https://xstate.js.org/docs/guides/events.html), [Transitions](https://xstate.js.org/docs/guides/transitions.html)
 * Generated C++ is fully synchronized, safe to use in multi-threaded environemnt without any changes
 * No exteral dependencies except STL. No boost dependency.
