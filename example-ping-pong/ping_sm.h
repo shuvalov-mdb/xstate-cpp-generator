@@ -2,10 +2,10 @@
  * This header is automatically generated using the Xstate to C++ code generator:
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
- * Please do not edit. If changes are needed, regenerate using the TypeScript template 'fetch.ts'.
- * Generated at Wed Oct 28 2020 22:38:24 GMT+0000 (UTC) from Xstate definition 'fetch.ts'.
+ * Please do not edit. If changes are needed, regenerate using the TypeScript template 'ping_pong.ts'.
+ * Generated at Wed Oct 28 2020 22:36:15 GMT+0000 (UTC) from Xstate definition 'ping_pong.ts'.
  * The simplest command line to run the generation:
- *     ts-node 'fetch.ts'
+ *     ts-node 'ping_pong.ts'
  */
 
 #pragma once
@@ -22,57 +22,51 @@
 
 namespace mongo {
 
-// All states declared in the SM FetchSM.
-enum class FetchSMState {
+// All states declared in the SM PingSM.
+enum class PingSMState {
     UNDEFINED_OR_ERROR_STATE = 0,
-    idle,
-    loading,
-    success,
-    failure,
+    init,
+    pinging,
 };
 
-std::string FetchSMStateToString(FetchSMState state);
+std::string PingSMStateToString(PingSMState state);
 
-std::ostream& operator << (std::ostream& os, const FetchSMState& state);
+std::ostream& operator << (std::ostream& os, const PingSMState& state);
 
 // @returns true if 'state' is a valid State.
-bool isValidFetchSMState(FetchSMState state);
+bool isValidPingSMState(PingSMState state);
 
-// All events declared in the SM FetchSM.
-enum class FetchSMEvent {
+// All events declared in the SM PingSM.
+enum class PingSMEvent {
     UNDEFINED_OR_ERROR_EVENT = 0,
-    FETCH,
-    RESOLVE,
-    REJECT,
-    RETRY,
+    START,
+    PONG,
 };
 
-std::string FetchSMEventToString(FetchSMEvent event);
+std::string PingSMEventToString(PingSMEvent event);
 
-std::ostream& operator << (std::ostream& os, const FetchSMEvent& event);
+std::ostream& operator << (std::ostream& os, const PingSMEvent& event);
 
 // @returns true if 'event' is a valid Event.
-bool isValidFetchSMEvent(FetchSMEvent event);
+bool isValidPingSMEvent(PingSMEvent event);
 
 // As a transition could be conditional (https://xstate.js.org/docs/guides/guards.html#guards-condition-functions)
 // one event is mapped to a vector of possible transitions.
-using FetchSMTransitionToStatesPair = std::pair<FetchSMEvent,
-        std::vector<FetchSMState>>;
+using PingSMTransitionToStatesPair = std::pair<PingSMEvent,
+        std::vector<PingSMState>>;
 
 /**
  * All valid transitions from the specified state. The transition to state graph
  * is code genrated from the model and cannot change.
  */
-const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromIdleState();
-const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromLoadingState();
-const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromSuccessState();
-const std::vector<FetchSMTransitionToStatesPair>& FetchSMValidTransitionsFromFailureState();
+const std::vector<PingSMTransitionToStatesPair>& PingSMValidTransitionsFromInitState();
+const std::vector<PingSMTransitionToStatesPair>& PingSMValidTransitionsFromPingingState();
 
 /**
  * Enum to indicate the current state transition phase in callbacks. This enum is used only for logging
  * and is not part of any State Machine logic.
  */
-enum class FetchSMTransitionPhase { 
+enum class PingSMTransitionPhase { 
     UNDEFINED = 0,
     LEAVING_STATE,
     ENTERING_STATE,
@@ -80,9 +74,9 @@ enum class FetchSMTransitionPhase {
     TRANSITION_NOT_FOUND
 };
 
-std::ostream& operator << (std::ostream& os, const FetchSMTransitionPhase& phase);
+std::ostream& operator << (std::ostream& os, const PingSMTransitionPhase& phase);
 
-template <typename SMSpec> class FetchSM;  // Forward declaration to use in Spec.
+template <typename SMSpec> class PingSM;  // Forward declaration to use in Spec.
 
 /**
  * Convenient default SM spec structure to parameterize the State Machine.
@@ -90,7 +84,7 @@ template <typename SMSpec> class FetchSM;  // Forward declaration to use in Spec
  * is no guards, and no other advanced features.
  */
 template <typename SMContext = std::nullptr_t>
-struct DefaultFetchSMSpec {
+struct DefaultPingSMSpec {
     /** 
      * Generic data structure stored in the State Machine to keep some user-defined state that can be modified
      * when transitions happen.
@@ -101,19 +95,20 @@ struct DefaultFetchSMSpec {
      * Each Event has a payload attached, which is passed in to the related callbacks.
      * The type should be movable for efficiency.
      */
-    using EventFetchPayload = std::unique_ptr<std::nullptr_t>;
-    using EventResolvePayload = std::unique_ptr<std::nullptr_t>;
-    using EventRejectPayload = std::unique_ptr<std::nullptr_t>;
-    using EventRetryPayload = std::unique_ptr<std::nullptr_t>;
+    using EventStartPayload = std::unique_ptr<std::nullptr_t>;
+    using EventPongPayload = std::unique_ptr<std::nullptr_t>;
 
     /**
      * Actions are modeled in the Xstate definition, see https://xstate.js.org/docs/guides/actions.html.
      * This block is for transition actions.
      */
+    std::function<void(PingSM<DefaultPingSMSpec>* sm, EventStartPayload*)> savePongActorAddress;
+    std::function<void(PingSM<DefaultPingSMSpec>* sm, EventStartPayload*)> spawnPongActor;
+    std::function<void(PingSM<DefaultPingSMSpec>* sm, EventPongPayload*)> sendPingToPongActor;
 };
 
 /**
- *  State machine as declared in Xstate library for FetchSM.
+ *  State machine as declared in Xstate library for PingSM.
  *  SMSpec is a convenient template struct, which allows to specify various definitions used by generated code. In a simple
  *  case it's not needed and a convenient default is provided.
  * 
@@ -121,39 +116,33 @@ struct DefaultFetchSMSpec {
  *  though its functionality will be limited in terms of callbacks.
  *  Even though it's a templated class, a default SMSpec is provided to make a simple
  *  State Machine without any customization. In the most simple form, a working 
- *  FetchSM SM instance can be instantiated and used as in this example:
+ *  PingSM SM instance can be instantiated and used as in this example:
  * 
- *    FetchSM<> machine;
+ *    PingSM<> machine;
  *    auto currentState = machine.currentState();
- *    FetchSM<>::FetchPayload payloadFETCH;      // ..and init payload with data
- *    machine.postEventFetch (std::move(payloadFETCH));
- *    FetchSM<>::ResolvePayload payloadRESOLVE;      // ..and init payload with data
- *    machine.postEventResolve (std::move(payloadRESOLVE));
- *    FetchSM<>::RejectPayload payloadREJECT;      // ..and init payload with data
- *    machine.postEventReject (std::move(payloadREJECT));
- *    FetchSM<>::RetryPayload payloadRETRY;      // ..and init payload with data
- *    machine.postEventRetry (std::move(payloadRETRY));
+ *    PingSM<>::StartPayload payloadSTART;      // ..and init payload with data
+ *    machine.postEventStart (std::move(payloadSTART));
+ *    PingSM<>::PongPayload payloadPONG;      // ..and init payload with data
+ *    machine.postEventPong (std::move(payloadPONG));
  * 
  *  Also see the generated unit tests in the example-* folders for more example code.
  */
-template <typename SMSpec = DefaultFetchSMSpec<std::nullptr_t>>
-class FetchSM {
+template <typename SMSpec = DefaultPingSMSpec<std::nullptr_t>>
+class PingSM {
   public:
-    using TransitionToStatesPair = FetchSMTransitionToStatesPair;
-    using State = FetchSMState;
-    using Event = FetchSMEvent;
-    using TransitionPhase = FetchSMTransitionPhase;
+    using TransitionToStatesPair = PingSMTransitionToStatesPair;
+    using State = PingSMState;
+    using Event = PingSMEvent;
+    using TransitionPhase = PingSMTransitionPhase;
     using StateMachineContext = typename SMSpec::StateMachineContext;
-    using FetchPayload = typename SMSpec::EventFetchPayload;
-    using ResolvePayload = typename SMSpec::EventResolvePayload;
-    using RejectPayload = typename SMSpec::EventRejectPayload;
-    using RetryPayload = typename SMSpec::EventRetryPayload;
+    using StartPayload = typename SMSpec::EventStartPayload;
+    using PongPayload = typename SMSpec::EventPongPayload;
 
     /**
      * Structure represents the current in-memory state of the State Machine.
      */
     struct CurrentState {
-        State currentState = FetchSMState::idle;
+        State currentState = PingSMState::init;
         /** previousState could be undefined if SM is at initial state */
         State previousState;
         /** The event that transitioned the SM from previousState to currentState */
@@ -176,9 +165,9 @@ class FetchSM {
         int totalTransitions = 0;
     };
 
-    FetchSM() {}
+    PingSM() {}
 
-    virtual ~FetchSM() {}
+    virtual ~PingSM() {}
 
     /**
      * Returns a copy of the current state, skipping some fields.
@@ -200,15 +189,13 @@ class FetchSM {
      * If the event queue is not empty, this adds the event into the queue and returns immediately. The events
      * in the queue will be processed sequentially by the same thread that is currently processing the front of the queue.
      */
-    void postEventFetch (FetchPayload&& payload);
-    void postEventResolve (ResolvePayload&& payload);
-    void postEventReject (RejectPayload&& payload);
-    void postEventRetry (RetryPayload&& payload);
+    void postEventStart (StartPayload&& payload);
+    void postEventPong (PongPayload&& payload);
 
     /**
      * All valid transitions from the current state of the State Machine.
      */
-    const std::vector<FetchSMTransitionToStatesPair>& validTransitionsFromCurrentState() const {
+    const std::vector<PingSMTransitionToStatesPair>& validTransitionsFromCurrentState() const {
         std::lock_guard<std::mutex> lck(_lock);
         return validTransitionsFrom(_currentState.currentState);
     }
@@ -237,17 +224,11 @@ class FetchSM {
      * 'onLeavingState' callbacks are invoked right before entering a new state. The internal 
      * '_currentState' data still points to the current state.
      */
-    virtual void onLeavingIdleState(State nextState) {
-        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::idle, nextState);
+    virtual void onLeavingInitState(State nextState) {
+        logTransition(PingSMTransitionPhase::LEAVING_STATE, State::init, nextState);
     }
-    virtual void onLeavingLoadingState(State nextState) {
-        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::loading, nextState);
-    }
-    virtual void onLeavingSuccessState(State nextState) {
-        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::success, nextState);
-    }
-    virtual void onLeavingFailureState(State nextState) {
-        logTransition(FetchSMTransitionPhase::LEAVING_STATE, State::failure, nextState);
+    virtual void onLeavingPingingState(State nextState) {
+        logTransition(PingSMTransitionPhase::LEAVING_STATE, State::pinging, nextState);
     }
 
     /**
@@ -256,21 +237,13 @@ class FetchSM {
      * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
      *   override another calback from the 'onEntered*State' below.
      */
-    virtual void onEnteringStateLoadingOnFETCH(State nextState, FetchPayload* payload) {
+    virtual void onEnteringStatePingingOnSTART(State nextState, StartPayload* payload) {
         std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
+        logTransition(PingSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::pinging);
     }
-    virtual void onEnteringStateSuccessOnRESOLVE(State nextState, ResolvePayload* payload) {
+    virtual void onEnteringStatePingingOnPONG(State nextState, PongPayload* payload) {
         std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::success);
-    }
-    virtual void onEnteringStateFailureOnREJECT(State nextState, RejectPayload* payload) {
-        std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::failure);
-    }
-    virtual void onEnteringStateLoadingOnRETRY(State nextState, RetryPayload* payload) {
-        std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
+        logTransition(PingSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::pinging);
     }
 
     /**
@@ -280,37 +253,25 @@ class FetchSM {
      * It is safe to call postEvent*() to trigger the next transition from this method.
      * @param payload ownership is transferred to the user.
      */
-    virtual void onEnteredStateLoadingOnFETCH(FetchPayload&& payload) {
+    virtual void onEnteredStatePingingOnSTART(StartPayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
+        logTransition(PingSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::pinging);
     }
-    virtual void onEnteredStateSuccessOnRESOLVE(ResolvePayload&& payload) {
+    virtual void onEnteredStatePingingOnPONG(PongPayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::success);
-    }
-    virtual void onEnteredStateFailureOnREJECT(RejectPayload&& payload) {
-        std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::failure);
-    }
-    virtual void onEnteredStateLoadingOnRETRY(RetryPayload&& payload) {
-        std::lock_guard<std::mutex> lck(_lock);
-        logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
+        logTransition(PingSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::pinging);
     }
 
 
     /**
      * All valid transitions from the specified state.
      */
-    static inline const std::vector<TransitionToStatesPair>& validTransitionsFrom(FetchSMState state) {
+    static inline const std::vector<TransitionToStatesPair>& validTransitionsFrom(PingSMState state) {
         switch (state) {
-          case FetchSMState::idle:
-            return FetchSMValidTransitionsFromIdleState();
-          case FetchSMState::loading:
-            return FetchSMValidTransitionsFromLoadingState();
-          case FetchSMState::success:
-            return FetchSMValidTransitionsFromSuccessState();
-          case FetchSMState::failure:
-            return FetchSMValidTransitionsFromFailureState();
+          case PingSMState::init:
+            return PingSMValidTransitionsFromInitState();
+          case PingSMState::pinging:
+            return PingSMValidTransitionsFromPingingState();
           default: {
             std::stringstream ss;
             ss << "invalid SM state " << state;
@@ -343,15 +304,15 @@ class FetchSM {
 /******   Internal implementation  ******/
 
 template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventFetch (FetchSM::FetchPayload&& payload) {
+inline void PingSM<SMSpec>::postEventStart (PingSM::StartPayload&& payload) {
     State currentState;
     {
         std::lock_guard<std::mutex> lck(_lock);
         // If the SM is currently processing another event, adds this one to the queue. The thread processing
         // that event is responsible to drain the queue, this is why we also check for the queue size.
         if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<FetchPayload>(std::move(payload))} ] () mutable {
-                postEventFetch (std::move(*p));
+            std::function<void()> eventCb{[ this, p{std::make_shared<StartPayload>(std::move(payload))} ] () mutable {
+                postEventStart (std::move(*p));
             }};
             _currentState.eventQueue.emplace_back(eventCb);
             return;  // Returns immediately, the event will be posted asynchronously.
@@ -361,19 +322,19 @@ inline void FetchSM<SMSpec>::postEventFetch (FetchSM::FetchPayload&& payload) {
         _currentState.blockedForProcessingAnEvent = true;
     }
     // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::FETCH, std::move(payload));
+    _postEventHelper(currentState, PingSM::Event::START, std::move(payload));
 }
 
 template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventResolve (FetchSM::ResolvePayload&& payload) {
+inline void PingSM<SMSpec>::postEventPong (PingSM::PongPayload&& payload) {
     State currentState;
     {
         std::lock_guard<std::mutex> lck(_lock);
         // If the SM is currently processing another event, adds this one to the queue. The thread processing
         // that event is responsible to drain the queue, this is why we also check for the queue size.
         if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<ResolvePayload>(std::move(payload))} ] () mutable {
-                postEventResolve (std::move(*p));
+            std::function<void()> eventCb{[ this, p{std::make_shared<PongPayload>(std::move(payload))} ] () mutable {
+                postEventPong (std::move(*p));
             }};
             _currentState.eventQueue.emplace_back(eventCb);
             return;  // Returns immediately, the event will be posted asynchronously.
@@ -383,63 +344,19 @@ inline void FetchSM<SMSpec>::postEventResolve (FetchSM::ResolvePayload&& payload
         _currentState.blockedForProcessingAnEvent = true;
     }
     // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::RESOLVE, std::move(payload));
-}
-
-template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventReject (FetchSM::RejectPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<RejectPayload>(std::move(payload))} ] () mutable {
-                postEventReject (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
-    }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::REJECT, std::move(payload));
-}
-
-template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventRetry (FetchSM::RetryPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<RetryPayload>(std::move(payload))} ] () mutable {
-                postEventRetry (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
-    }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::RETRY, std::move(payload));
+    _postEventHelper(currentState, PingSM::Event::PONG, std::move(payload));
 }
 
 
 template<typename SMSpec>
 template<typename Payload>
-void FetchSM<SMSpec>::_postEventHelper (FetchSM::State state, FetchSM::Event event, Payload&& payload) {
+void PingSM<SMSpec>::_postEventHelper (PingSM::State state, PingSM::Event event, Payload&& payload) {
 
     // Step 1: Invoke the guard callback. TODO: implement.
 
     // Step 2: check if the transition is valid.
-    const std::vector<FetchSMState>* targetStates = nullptr;
-    const std::vector<FetchSMTransitionToStatesPair>& validTransitions = validTransitionsFrom(state);
+    const std::vector<PingSMState>* targetStates = nullptr;
+    const std::vector<PingSMTransitionToStatesPair>& validTransitions = validTransitionsFrom(state);
     for (const auto& transitionEvent : validTransitions) {
         if (transitionEvent.first == event) {
             targetStates = &transitionEvent.second;
@@ -496,83 +413,78 @@ void FetchSM<SMSpec>::_postEventHelper (FetchSM::State state, FetchSM::Event eve
 }
 
 template<typename SMSpec>
-void FetchSM<SMSpec>::_leavingStateHelper(State fromState, State newState) {
+void PingSM<SMSpec>::_leavingStateHelper(State fromState, State newState) {
     switch (fromState) {
-    case State::idle:
-        onLeavingIdleState (newState);
+    case State::init:
+        onLeavingInitState (newState);
         break;
-    case State::loading:
-        onLeavingLoadingState (newState);
-        break;
-    case State::success:
-        onLeavingSuccessState (newState);
-        break;
-    case State::failure:
-        onLeavingFailureState (newState);
+    case State::pinging:
+        onLeavingPingingState (newState);
         break;
     }
 }
 
 template<typename SMSpec>
-void FetchSM<SMSpec>::_enteringStateHelper(Event event, State newState, void* payload) {
-    if (event == Event::FETCH && newState == State::loading) {
-        FetchPayload* typedPayload = static_cast<FetchPayload*>(payload);
-        onEnteringStateLoadingOnFETCH(newState, typedPayload);
+void PingSM<SMSpec>::_enteringStateHelper(Event event, State newState, void* payload) {
+    if (event == Event::START && newState == State::pinging) {
+        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
+        onEnteringStatePingingOnSTART(newState, typedPayload);
         return;
     }
-    if (event == Event::RESOLVE && newState == State::success) {
-        ResolvePayload* typedPayload = static_cast<ResolvePayload*>(payload);
-        onEnteringStateSuccessOnRESOLVE(newState, typedPayload);
-        return;
-    }
-    if (event == Event::REJECT && newState == State::failure) {
-        RejectPayload* typedPayload = static_cast<RejectPayload*>(payload);
-        onEnteringStateFailureOnREJECT(newState, typedPayload);
-        return;
-    }
-    if (event == Event::RETRY && newState == State::loading) {
-        RetryPayload* typedPayload = static_cast<RetryPayload*>(payload);
-        onEnteringStateLoadingOnRETRY(newState, typedPayload);
+    if (event == Event::PONG && newState == State::pinging) {
+        PongPayload* typedPayload = static_cast<PongPayload*>(payload);
+        onEnteringStatePingingOnPONG(newState, typedPayload);
         return;
     }
 }
 
 template<typename SMSpec>
-void FetchSM<SMSpec>::_transitionActionsHelper(State fromState, Event event, void* payload) {
-}
-
-template<typename SMSpec>
-void FetchSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
-    if (event == Event::FETCH && newState == State::loading) {
-        FetchPayload* typedPayload = static_cast<FetchPayload*>(payload);
-        onEnteredStateLoadingOnFETCH(std::move(*typedPayload));
-        return;
+void PingSM<SMSpec>::_transitionActionsHelper(State fromState, Event event, void* payload) {
+    if (fromState == State::init && event == Event::START) {
+        auto function = SMSpec().savePongActorAddress;
+        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
+        if (function) {
+            function(this, typedPayload);
+        }
     }
-    if (event == Event::RESOLVE && newState == State::success) {
-        ResolvePayload* typedPayload = static_cast<ResolvePayload*>(payload);
-        onEnteredStateSuccessOnRESOLVE(std::move(*typedPayload));
-        return;
+    if (fromState == State::init && event == Event::START) {
+        auto function = SMSpec().spawnPongActor;
+        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
+        if (function) {
+            function(this, typedPayload);
+        }
     }
-    if (event == Event::REJECT && newState == State::failure) {
-        RejectPayload* typedPayload = static_cast<RejectPayload*>(payload);
-        onEnteredStateFailureOnREJECT(std::move(*typedPayload));
-        return;
-    }
-    if (event == Event::RETRY && newState == State::loading) {
-        RetryPayload* typedPayload = static_cast<RetryPayload*>(payload);
-        onEnteredStateLoadingOnRETRY(std::move(*typedPayload));
-        return;
+    if (fromState == State::pinging && event == Event::PONG) {
+        auto function = SMSpec().sendPingToPongActor;
+        PongPayload* typedPayload = static_cast<PongPayload*>(payload);
+        if (function) {
+            function(this, typedPayload);
+        }
     }
 }
 
 template<typename SMSpec>
-void FetchSM<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
+void PingSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
+    if (event == Event::START && newState == State::pinging) {
+        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
+        onEnteredStatePingingOnSTART(std::move(*typedPayload));
+        return;
+    }
+    if (event == Event::PONG && newState == State::pinging) {
+        PongPayload* typedPayload = static_cast<PongPayload*>(payload);
+        onEnteredStatePingingOnPONG(std::move(*typedPayload));
+        return;
+    }
+}
+
+template<typename SMSpec>
+void PingSM<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
     std::lock_guard<std::mutex> lck(_lock);
     callback(_context);  // User can modify the context under lock.
 }
 
 template<typename SMSpec>
-void FetchSM<SMSpec>::logTransition(TransitionPhase phase, State currentState, State nextState) const {
+void PingSM<SMSpec>::logTransition(TransitionPhase phase, State currentState, State nextState) const {
     switch (phase) {
     case TransitionPhase::LEAVING_STATE:
         std::cout << phase << currentState << ", transitioning to " << nextState;

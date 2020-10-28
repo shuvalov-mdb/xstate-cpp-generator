@@ -143,13 +143,16 @@ struct MySpec {
     using EventRejectPayload = MyRejectPayload;
     // The name EventRetryPayload is reserved by convention for every event.
     using EventRetryPayload = MyRetryPayload;
+
+    // Actions declared in the model.
+
 };
 
 // And finally the more feature rich State Machine can be subclassed from the generated class
 // FetchSM, which gives the possibility to overload the virtual methods.
 class MyTestStateMachine : public FetchSM<MySpec> {
   public:
-    ~MyTestStateMachine() final;
+    ~MyTestStateMachine() final {}
 
     // Overload the logging method to use the log system of your project.
     void logTransition(TransitionPhase phase, State currentState, State nextState) const final {
@@ -205,6 +208,27 @@ class SMTestFixture : public ::testing::Test {
         _sm.reset(new MyTestStateMachine);
     }
 
+    void postEvent(FetchSMEvent event) {
+        switch (event) {
+        case FetchSMEvent::FETCH: {
+            FetchSM<MySpec>::FetchPayload payload;
+            _sm->postEventFetch (std::move(payload));
+        } break;
+        case FetchSMEvent::RESOLVE: {
+            FetchSM<MySpec>::ResolvePayload payload;
+            _sm->postEventResolve (std::move(payload));
+        } break;
+        case FetchSMEvent::REJECT: {
+            FetchSM<MySpec>::RejectPayload payload;
+            _sm->postEventReject (std::move(payload));
+        } break;
+        case FetchSMEvent::RETRY: {
+            FetchSM<MySpec>::RetryPayload payload;
+            _sm->postEventRetry (std::move(payload));
+        } break;
+        }
+    }
+
     std::unique_ptr<MyTestStateMachine> _sm;
 };
 
@@ -220,26 +244,7 @@ TEST_F(SMTestFixture, States) {
         // Make a random transition.
         const FetchSMTransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
         const FetchSMEvent event = transition.first;
-        switch (event) {
-        case FetchSMEvent::FETCH: {
-            FetchSM<>::FetchPayload payload;
-            _sm->postEventFetch (std::move(payload));
-        } break;
-        case FetchSMEvent::RESOLVE: {
-            FetchSM<>::ResolvePayload payload;
-            _sm->postEventResolve (std::move(payload));
-        } break;
-        case FetchSMEvent::REJECT: {
-            FetchSM<>::RejectPayload payload;
-            _sm->postEventReject (std::move(payload));
-        } break;
-        case FetchSMEvent::RETRY: {
-            FetchSM<>::RetryPayload payload;
-            _sm->postEventRetry (std::move(payload));
-        } break;
-        default:
-            ASSERT_TRUE(false) << "This should never happen";
-        }
+        postEvent(event);
 
         currentState = _sm->currentState();
         ASSERT_EQ(currentState.lastEvent, event);

@@ -121,6 +121,22 @@ export class Generator {
         return result;
     }
 
+    // @returns pair [ event, action ]
+    stateEventActions(state: string): [string, string][] {
+        var result: [string, string][] = [];
+        var stateObj: StateNode<any, any, EventObject> = this.machine.states[state];
+        console.log(stateObj.on);//tmp
+        Object.keys(stateObj.on).forEach(eventName => {
+            var targetStates = stateObj.on[eventName];
+            targetStates.forEach(targetState => {
+                targetState["actions"].forEach(action => {
+                    result.push([eventName, action.toString()]);
+                });
+            });
+        });
+        return result;
+    }
+
     initialState(): string {
         if (this.machine.initial != null) {
             return this.machine.initial.toString();

@@ -5,3 +5,6 @@ node_modules/
 example-fetch/fetch_test
 example-fetch/fetch_test.o
 example-fetch/fetch_sm.o
+example-ping-pong/ping_sm.o
+example-ping-pong/ping_test.o
+example-ping-pong/ping_test

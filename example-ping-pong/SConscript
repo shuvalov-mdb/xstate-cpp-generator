@@ -1,0 +1,10 @@
+env = Environment()
+
+LIBS =''
+
+common_libs = ['gtest_main', 'gtest', 'pthread']
+env.Append( LIBS = common_libs )
+env.Append( CPPPATH = ['../'])
+
+env.Program('ping_test', ['ping_sm.cpp', 'ping_test.cpp'], 
+            LIBS, LIBPATH='/opt/gtest/lib:/usr/local/lib', CXXFLAGS="-std=c++17")

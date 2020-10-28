@@ -3,7 +3,9 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template '{{it.properties.tsScriptName}}'.
- * Generated at {{it.generator.annotation()}}.
+ * Generated at {{it.generator.annotation()}} from Xstate definition '{{it.properties.tsScriptName}}'.
+ * The simplest command line to run the generation:
+ *     ts-node '{{it.properties.tsScriptName}}'
  */
 
 #pragma once
@@ -77,6 +79,8 @@ enum class {{it.generator.class()}}TransitionPhase {
 
 std::ostream& operator << (std::ostream& os, const {{it.generator.class()}}TransitionPhase& phase);
 
+template <typename SMSpec> class {{it.generator.class()}};  // Forward declaration to use in Spec.
+
 /**
  * Convenient default SM spec structure to parameterize the State Machine.
  * It can be replaced with a custom one if the SM events do not need any payload to be attached, and if there
@@ -97,6 +101,16 @@ struct Default{{it.generator.class()}}Spec {
 {{@each(it.generator.events()) => val, index}}
     using Event{{it.generator.capitalize(val)}}Payload = std::unique_ptr<std::nullptr_t>;
 {{/each}}
+
+    /**
+     * Actions are modeled in the Xstate definition, see https://xstate.js.org/docs/guides/actions.html.
+     * This block is for transition actions.
+     */
+{{@foreach(it.machine.states) => state, val}}
+{{@each(it.generator.stateEventActions(state)) => pair, index}}
+    std::function<void({{it.generator.class()}}<Default{{it.generator.class()}}Spec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload*)> {{pair[1]}};
+{{/each}}
+{{/foreach}}
 };
 
 /**
@@ -278,6 +292,8 @@ class {{it.generator.class()}} {
     // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
     void _enteringStateHelper(Event event, State newState, void* payload);
 
+    void _transitionActionsHelper(State fromState, Event event, void* payload);
+
     // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
     void _enteredStateHelper(Event event, State newState, void* payload);
 
@@ -343,6 +359,9 @@ void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}
     // Step 4: Invoke the 'entering the state' callback.
     _enteringStateHelper(event, newState, &payload);
 
+    // ... and the transiton actions.
+    _transitionActionsHelper(state, event, &payload);
+
     {
         // Step 5: do the transition.
         std::lock_guard<std::mutex> lck(_lock);
@@ -396,6 +415,21 @@ void {{it.generator.class()}}<SMSpec>::_enteringStateHelper(Event event, State n
         return;
     }
 {{/each}}
+}
+
+template<typename SMSpec>
+void {{it.generator.class()}}<SMSpec>::_transitionActionsHelper(State fromState, Event event, void* payload) {
+{{@foreach(it.machine.states) => state, val}}
+{{@each(it.generator.stateEventActions(state)) => pair, index}}
+    if (fromState == State::{{state}} && event == Event::{{pair[0]}}) {
+        auto function = SMSpec().{{pair[1]}};
+        {{it.generator.capitalize(pair[0])}}Payload* typedPayload = static_cast<{{it.generator.capitalize(pair[0])}}Payload*>(payload);
+        if (function) {
+            function(this, typedPayload);
+        }
+    }
+{{/each}}
+{{/foreach}}
 }
 
 template<typename SMSpec>

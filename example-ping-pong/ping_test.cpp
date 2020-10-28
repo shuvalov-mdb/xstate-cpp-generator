@@ -1,21 +1,25 @@
 // This test is automatically generated, do not edit.
 
-#include "{{it.properties.pathForIncludes}}/{{it.generator.outputHeaderShortname}}"
+#include "example-ping-pong/ping_sm.h"
 
 #include <gtest/gtest.h>
 
-namespace {{it.properties.namespace }} {
+namespace mongo {
 namespace {
 
 TEST(StaticSMTests, TransitionsInfo) {
-{{@foreach(it.machine.states) => key, val}}
     {
-        auto transitions = {{it.generator.class()}}ValidTransitionsFrom{{it.generator.capitalize(key)}}State();
+        auto transitions = PingSMValidTransitionsFromInitState();
         for (const auto& transition : transitions) {
-            EXPECT_TRUE(isValid{{it.generator.class()}}Event(transition.first));
+            EXPECT_TRUE(isValidPingSMEvent(transition.first));
         }
     }
-{{/foreach}}
+    {
+        auto transitions = PingSMValidTransitionsFromPingingState();
+        for (const auto& transition : transitions) {
+            EXPECT_TRUE(isValidPingSMEvent(transition.first));
+        }
+    }
 }
 
 /**
@@ -23,7 +27,7 @@ TEST(StaticSMTests, TransitionsInfo) {
  * subclassing.
  */
 TEST(StaticSMTests, States) {
-    {{it.generator.class()}}<> machine;
+    PingSM<> machine;
     int count = 0;
     for (; count < 10; ++count) {
         auto currentState = machine.currentState();
@@ -33,15 +37,17 @@ TEST(StaticSMTests, States) {
             break;
         }
         // Make a random transition.
-        const {{it.generator.class()}}TransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
-        const {{it.generator.class()}}Event event = transition.first;
+        const PingSMTransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
+        const PingSMEvent event = transition.first;
         switch (event) {
-{{@each(it.generator.events()) => val, index}}
-        case {{it.generator.class()}}Event::{{val}}: {
-            {{it.generator.class()}}<>::{{it.generator.capitalize(val)}}Payload payload;
-            machine.postEvent{{it.generator.capitalize(val)}} (std::move(payload));
+        case PingSMEvent::START: {
+            PingSM<>::StartPayload payload;
+            machine.postEventStart (std::move(payload));
         } break;
-{{/each}}
+        case PingSMEvent::PONG: {
+            PingSM<>::PongPayload payload;
+            machine.postEventPong (std::move(payload));
+        } break;
         default:
             ASSERT_TRUE(false) << "This should never happen";
         }
@@ -65,17 +71,24 @@ struct UserContext {
 // Every Event can have some arbitrary user defined payload. It can be
 // any type, as class or some STL type like std::unique_ptr or std::vector.
 
-{{@each(it.generator.events()) => val, index}}
-// Sample payload for the {{it.generator.capitalize(val)}} event.
-// The only restriction - it cannot be named Event{{it.generator.capitalize(val)}}Payload
+// Sample payload for the Start event.
+// The only restriction - it cannot be named EventStartPayload
 // because this name is reserved for the Spec structure.
-struct My{{it.generator.capitalize(val)}}Payload {
+struct MyStartPayload {
     int data = 42;
     std::string str = "Hi";
-    int someID = {{index}};
-    static constexpr char staticText[] = "it's {{it.generator.capitalize(val)}} payload";
+    int someID = 0;
+    static constexpr char staticText[] = "it's Start payload";
 };
-{{/each}}
+// Sample payload for the Pong event.
+// The only restriction - it cannot be named EventPongPayload
+// because this name is reserved for the Spec structure.
+struct MyPongPayload {
+    int data = 42;
+    std::string str = "Hi";
+    int someID = 1;
+    static constexpr char staticText[] = "it's Pong payload";
+};
 
 // Spec struct contains just a bunch of 'using' declarations to stich all types together
 // and avoid variable template argument for the SM class declaration.
@@ -84,26 +97,30 @@ struct MySpec {
     using StateMachineContext = UserContext;
 
     // Then it should have a list of 'using' declarations for every event payload.
-{{@each(it.generator.events()) => val, index}}
-    // The name Event{{it.generator.capitalize(val)}}Payload is reserved by convention for every event.
-    using Event{{it.generator.capitalize(val)}}Payload = My{{it.generator.capitalize(val)}}Payload;
-{{/each}}
+    // The name EventStartPayload is reserved by convention for every event.
+    using EventStartPayload = MyStartPayload;
+    // The name EventPongPayload is reserved by convention for every event.
+    using EventPongPayload = MyPongPayload;
 
     // Actions declared in the model.
-{{@foreach(it.machine.states) => state, val}}
-{{@each(it.generator.stateEventActions(state)) => pair, index}}
-    std::function<void({{it.generator.class()}}<MySpec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload*)> {{pair[1]}} = 
-        [] ({{it.generator.class()}}<MySpec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload* payload) {
-            std::cout << payload->str << " " << payload->staticText << " inside {{pair[1]}}" << std::endl;
+    std::function<void(PingSM<MySpec>* sm, EventStartPayload*)> savePongActorAddress = 
+        [] (PingSM<MySpec>* sm, EventStartPayload* payload) {
+            std::cout << payload->str << " " << payload->staticText << " inside savePongActorAddress" << std::endl;
     };
-{{/each}}
-{{/foreach}}
+    std::function<void(PingSM<MySpec>* sm, EventStartPayload*)> spawnPongActor = 
+        [] (PingSM<MySpec>* sm, EventStartPayload* payload) {
+            std::cout << payload->str << " " << payload->staticText << " inside spawnPongActor" << std::endl;
+    };
+    std::function<void(PingSM<MySpec>* sm, EventPongPayload*)> sendPingToPongActor = 
+        [] (PingSM<MySpec>* sm, EventPongPayload* payload) {
+            std::cout << payload->str << " " << payload->staticText << " inside sendPingToPongActor" << std::endl;
+    };
 
 };
 
 // And finally the more feature rich State Machine can be subclassed from the generated class
-// {{it.generator.class()}}, which gives the possibility to overload the virtual methods.
-class MyTestStateMachine : public {{it.generator.class()}}<MySpec> {
+// PingSM, which gives the possibility to overload the virtual methods.
+class MyTestStateMachine : public PingSM<MySpec> {
   public:
     ~MyTestStateMachine() final {}
 
@@ -128,14 +145,18 @@ class MyTestStateMachine : public {{it.generator.class()}}<MySpec> {
     }
 
     // Overload 'onLeaving' method to cleanup some state or do some other action.
-{{@foreach(it.machine.states) => key, val}}
-    void onLeaving{{it.generator.capitalize(key)}}State(State nextState) final {
-        logTransition({{it.generator.class()}}TransitionPhase::LEAVING_STATE, State::{{key}}, nextState);
+    void onLeavingInitState(State nextState) final {
+        logTransition(PingSMTransitionPhase::LEAVING_STATE, State::init, nextState);
         accessContextLocked([this] (StateMachineContext& userContext) {
             userContext.dataToKeepWhileInState.reset();  // As example we erase some data in the context.
         });
     }
-{{/foreach}}
+    void onLeavingPingingState(State nextState) final {
+        logTransition(PingSMTransitionPhase::LEAVING_STATE, State::pinging, nextState);
+        accessContextLocked([this] (StateMachineContext& userContext) {
+            userContext.dataToKeepWhileInState.reset();  // As example we erase some data in the context.
+        });
+    }
 
 };
 
@@ -145,14 +166,16 @@ class SMTestFixture : public ::testing::Test {
         _sm.reset(new MyTestStateMachine);
     }
 
-    void postEvent({{it.generator.class()}}Event event) {
+    void postEvent(PingSMEvent event) {
         switch (event) {
-{{@each(it.generator.events()) => val, index}}
-        case {{it.generator.class()}}Event::{{val}}: {
-            {{it.generator.class()}}<MySpec>::{{it.generator.capitalize(val)}}Payload payload;
-            _sm->postEvent{{it.generator.capitalize(val)}} (std::move(payload));
+        case PingSMEvent::START: {
+            PingSM<MySpec>::StartPayload payload;
+            _sm->postEventStart (std::move(payload));
         } break;
-{{/each}}
+        case PingSMEvent::PONG: {
+            PingSM<MySpec>::PongPayload payload;
+            _sm->postEventPong (std::move(payload));
+        } break;
         }
     }
 
@@ -169,8 +192,8 @@ TEST_F(SMTestFixture, States) {
             break;
         }
         // Make a random transition.
-        const {{it.generator.class()}}TransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
-        const {{it.generator.class()}}Event event = transition.first;
+        const PingSMTransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
+        const PingSMEvent event = transition.first;
         postEvent(event);
 
         currentState = _sm->currentState();
@@ -180,4 +203,4 @@ TEST_F(SMTestFixture, States) {
 }
 
 }  // namespace
-}  // namespace {{it.properties.namespace }}
+}  // namespace mongo
