@@ -1,12 +1,13 @@
 {
   "name": "xstate-cpp-generator",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "C++ code generator for Xstate State Machine",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "copy": "find ./src \\( -name '*.h' -o -name '*.cpp' \\) -type f -exec cp {} ./dist \\;"
   },
   "repository": {
     "type": "git",
