@@ -108,7 +108,7 @@ struct Default{{it.generator.class()}}Spec {
      */
 {{@foreach(it.machine.states) => state, val}}
 {{@each(it.generator.stateEventActions(state)) => pair, index}}
-    std::function<void({{it.generator.class()}}<Default{{it.generator.class()}}Spec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload*)> {{pair[1]}};
+    void {{pair[1]}} ({{it.generator.class()}}<Default{{it.generator.class()}}Spec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload*) {}
 {{/each}}
 {{/foreach}}
 };
@@ -422,11 +422,8 @@ void {{it.generator.class()}}<SMSpec>::_transitionActionsHelper(State fromState,
 {{@foreach(it.machine.states) => state, val}}
 {{@each(it.generator.stateEventActions(state)) => pair, index}}
     if (fromState == State::{{state}} && event == Event::{{pair[0]}}) {
-        auto function = SMSpec().{{pair[1]}};
         {{it.generator.capitalize(pair[0])}}Payload* typedPayload = static_cast<{{it.generator.capitalize(pair[0])}}Payload*>(payload);
-        if (function) {
-            function(this, typedPayload);
-        }
+        SMSpec().{{pair[1]}}(this, typedPayload);
     }
 {{/each}}
 {{/foreach}}
@@ -453,19 +450,19 @@ template<typename SMSpec>
 void {{it.generator.class()}}<SMSpec>::logTransition(TransitionPhase phase, State currentState, State nextState) const {
     switch (phase) {
     case TransitionPhase::LEAVING_STATE:
-        std::cout << phase << currentState << ", transitioning to " << nextState;
+        std::clog << phase << currentState << ", transitioning to " << nextState;
         break;
     case TransitionPhase::ENTERING_STATE:
-        std::cout << phase << nextState << " from " << currentState;
+        std::clog << phase << nextState << " from " << currentState;
         break;
     case TransitionPhase::ENTERED_STATE:
-        std::cout << phase << currentState;
+        std::clog << phase << currentState;
         break;
     default:
-        std::cout << "ERROR ";
+        std::clog << "ERROR ";
         break;
     }
-    std::cout << std::endl;
+    std::clog << std::endl;
 }
 
 

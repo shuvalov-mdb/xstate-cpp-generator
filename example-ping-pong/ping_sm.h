@@ -3,7 +3,7 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template 'ping_pong.ts'.
- * Generated at Wed Oct 28 2020 22:36:15 GMT+0000 (UTC) from Xstate definition 'ping_pong.ts'.
+ * Generated at Thu Oct 29 2020 00:13:39 GMT+0000 (UTC) from Xstate definition 'ping_pong.ts'.
  * The simplest command line to run the generation:
  *     ts-node 'ping_pong.ts'
  */
@@ -102,9 +102,9 @@ struct DefaultPingSMSpec {
      * Actions are modeled in the Xstate definition, see https://xstate.js.org/docs/guides/actions.html.
      * This block is for transition actions.
      */
-    std::function<void(PingSM<DefaultPingSMSpec>* sm, EventStartPayload*)> savePongActorAddress;
-    std::function<void(PingSM<DefaultPingSMSpec>* sm, EventStartPayload*)> spawnPongActor;
-    std::function<void(PingSM<DefaultPingSMSpec>* sm, EventPongPayload*)> sendPingToPongActor;
+    void savePongActorAddress (PingSM<DefaultPingSMSpec>* sm, EventStartPayload*) {}
+    void spawnPongActor (PingSM<DefaultPingSMSpec>* sm, EventStartPayload*) {}
+    void sendPingToPongActor (PingSM<DefaultPingSMSpec>* sm, EventPongPayload*) {}
 };
 
 /**
@@ -441,25 +441,16 @@ void PingSM<SMSpec>::_enteringStateHelper(Event event, State newState, void* pay
 template<typename SMSpec>
 void PingSM<SMSpec>::_transitionActionsHelper(State fromState, Event event, void* payload) {
     if (fromState == State::init && event == Event::START) {
-        auto function = SMSpec().savePongActorAddress;
         StartPayload* typedPayload = static_cast<StartPayload*>(payload);
-        if (function) {
-            function(this, typedPayload);
-        }
+        SMSpec().savePongActorAddress(this, typedPayload);
     }
     if (fromState == State::init && event == Event::START) {
-        auto function = SMSpec().spawnPongActor;
         StartPayload* typedPayload = static_cast<StartPayload*>(payload);
-        if (function) {
-            function(this, typedPayload);
-        }
+        SMSpec().spawnPongActor(this, typedPayload);
     }
     if (fromState == State::pinging && event == Event::PONG) {
-        auto function = SMSpec().sendPingToPongActor;
         PongPayload* typedPayload = static_cast<PongPayload*>(payload);
-        if (function) {
-            function(this, typedPayload);
-        }
+        SMSpec().sendPingToPongActor(this, typedPayload);
     }
 }
 
@@ -487,19 +478,19 @@ template<typename SMSpec>
 void PingSM<SMSpec>::logTransition(TransitionPhase phase, State currentState, State nextState) const {
     switch (phase) {
     case TransitionPhase::LEAVING_STATE:
-        std::cout << phase << currentState << ", transitioning to " << nextState;
+        std::clog << phase << currentState << ", transitioning to " << nextState;
         break;
     case TransitionPhase::ENTERING_STATE:
-        std::cout << phase << nextState << " from " << currentState;
+        std::clog << phase << nextState << " from " << currentState;
         break;
     case TransitionPhase::ENTERED_STATE:
-        std::cout << phase << currentState;
+        std::clog << phase << currentState;
         break;
     default:
-        std::cout << "ERROR ";
+        std::clog << "ERROR ";
         break;
     }
-    std::cout << std::endl;
+    std::clog << std::endl;
 }
 
 
