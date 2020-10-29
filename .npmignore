@@ -2,3 +2,4 @@ tsconfig.json
 src
 example-simple
 example-ping-pong
+example-fetch

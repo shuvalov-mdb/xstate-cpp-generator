@@ -8,3 +8,4 @@ example-fetch/fetch_sm.o
 example-ping-pong/ping_sm.o
 example-ping-pong/ping_test.o
 example-ping-pong/ping_test
+dist
