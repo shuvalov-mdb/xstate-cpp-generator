@@ -31,21 +31,33 @@ Create a simple Xstate model file `ping.ts` with few lines to trigger C++ genera
 const CppGen = require('xstate-cpp-generator');
 const path = require('path');
 
-import { Machine, createMachine, assign } from 'xstate';
+import { Machine } from 'xstate';
 
-const pingPongMachine = Machine({
-    id: 'ping',
-    initial: 'init',
+const engineerMachine = Machine({
+    id: 'engineer',
+    initial: 'sleeping',
     states: {
-        init: {
+        sleeping: {
+            entry: 'startWakeupTimer',
+            exit: 'morningRoutine',
             on: {
-                'START': { target: 'pinging', actions: ['savePongActorAddress', 'spawnPongActor'] }
+                'TIMER': { target: 'working', actions: ['startHungryTimer', 'startTiredTimer'] },
+                'TIRED': { target: 'sleeping' }
             }
         },
-        pinging: {
-            onEntry: 'sendPingToPongActor',
+        working: {
+            entry: ['checkEmail', 'startHungryTimer' ],
             on: {
-                'PONG': { target: 'pinging', actions: ['sendPingToPongActor']}
+                'HUNGRY': { target: 'eating', actions: ['checkEmail']},
+                'TIRED': { target: 'sleeping' }
+            },
+        },
+        eating: {
+            entry: 'startShortTimer',
+            exit: [ 'checkEmail', 'startHungryTimer', 'startTiredTimer' ],
+            on: {
+                'TIMER': { target: 'working', actions: ['startHungryTimer'] },
+                'TIRED': { target: 'sleeping' }
             }
         }
     }
@@ -53,10 +65,10 @@ const pingPongMachine = Machine({
 
 
 CppGen.generateCpp({
-    xstateMachine: pingPongMachine,
+    xstateMachine: engineerMachine,
     destinationPath: "",
     namespace: "mongo",
-    pathForIncludes: "example-ping-pong",
+    pathForIncludes: "",
     tsScriptName: path.basename(__filename)
   });
 ```
