@@ -7,6 +7,11 @@ using [Xstate](https://github.com/davidkpiano/xstate) into C++ generated SM, no 
 * NPM TypeScript package location: https://www.npmjs.com/package/xstate-cpp-generator
 * Copyright Andrew Shuvalov, MIT [License](https://github.com/shuvalov-mdb/xstate-cpp-generator/blob/master/LICENSE)
 
+## Tutorials and Documentation
+* Quick start is right below
+* [Tutorial](TUTORIAL.md)
+* [Video tutorial](https://youtu.be/_cRquls_lOg)
+
 ## Features
 
 * Design and test the State Machine in [Xstate](https://github.com/davidkpiano/xstate) and then convert to C++ without any changes
@@ -21,10 +26,6 @@ using [Xstate](https://github.com/davidkpiano/xstate) into C++ generated SM, no 
   * Every state and transtion callbacks are generated as virtual methods that can be overloaded by subclassing
 * Arbitrary user-defined data structure (called Context) can be stored in the SM
 * Any event can have an arbitrary user-defined payload attached. The event payload is propagated to related callbacks
-
-## Resources
-* Quick start is right below
-* [Tutorial](TUTORIAL.md)
 
 ## Install and Quick Start Tutorial
 
