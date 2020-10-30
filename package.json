@@ -1,6 +1,6 @@
 {
   "name": "xstate-cpp-generator",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "C++ code generator for Xstate State Machine",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
