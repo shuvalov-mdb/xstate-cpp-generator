@@ -3,7 +3,7 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template 'engineer.ts'.
- * Generated at Fri Oct 30 2020 01:59:52 GMT+0000 (Coordinated Universal Time) from Xstate definition 'engineer.ts'.
+ * Generated at Fri Oct 30 2020 16:38:31 GMT+0000 (Coordinated Universal Time) from Xstate definition 'engineer.ts'.
  * The simplest command line to run the generation:
  *     ts-node 'engineer.ts'
  */
@@ -315,19 +315,19 @@ class EngineerSM {
      * It is safe to call postEvent*() to trigger the next transition from this method.
      * @param payload ownership is transferred to the user.
      */
-    virtual void onEnteredStateWorkingOnTIMER(TimerPayload&& payload) {
+    virtual void onEnteredStateWorkingOnTIMER(std::shared_ptr<TimerPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::working);
     }
-    virtual void onEnteredStateEatingOnHUNGRY(HungryPayload&& payload) {
+    virtual void onEnteredStateEatingOnHUNGRY(std::shared_ptr<HungryPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::eating);
     }
-    virtual void onEnteredStateSleepingOnTIRED(TiredPayload&& payload) {
+    virtual void onEnteredStateSleepingOnTIRED(std::shared_ptr<TiredPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::sleeping);
     }
-    virtual void onEnteredStateWeekendOnENOUGH(EnoughPayload&& payload) {
+    virtual void onEnteredStateWeekendOnENOUGH(std::shared_ptr<EnoughPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::weekend);
     }
@@ -617,23 +617,23 @@ void EngineerSM<SMSpec>::_transitionActionsHelper(State fromState, Event event, 
 template<typename SMSpec>
 void EngineerSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
     if (event == Event::TIMER && newState == State::working) {
-        TimerPayload* typedPayload = static_cast<TimerPayload*>(payload);
-        onEnteredStateWorkingOnTIMER(std::move(*typedPayload));
+        std::shared_ptr<TimerPayload>* typedPayload = static_cast<std::shared_ptr<TimerPayload>*>(payload);
+        onEnteredStateWorkingOnTIMER(*typedPayload);
         return;
     }
     if (event == Event::HUNGRY && newState == State::eating) {
-        HungryPayload* typedPayload = static_cast<HungryPayload*>(payload);
-        onEnteredStateEatingOnHUNGRY(std::move(*typedPayload));
+        std::shared_ptr<HungryPayload>* typedPayload = static_cast<std::shared_ptr<HungryPayload>*>(payload);
+        onEnteredStateEatingOnHUNGRY(*typedPayload);
         return;
     }
     if (event == Event::TIRED && newState == State::sleeping) {
-        TiredPayload* typedPayload = static_cast<TiredPayload*>(payload);
-        onEnteredStateSleepingOnTIRED(std::move(*typedPayload));
+        std::shared_ptr<TiredPayload>* typedPayload = static_cast<std::shared_ptr<TiredPayload>*>(payload);
+        onEnteredStateSleepingOnTIRED(*typedPayload);
         return;
     }
     if (event == Event::ENOUGH && newState == State::weekend) {
-        EnoughPayload* typedPayload = static_cast<EnoughPayload*>(payload);
-        onEnteredStateWeekendOnENOUGH(std::move(*typedPayload));
+        std::shared_ptr<EnoughPayload>* typedPayload = static_cast<std::shared_ptr<EnoughPayload>*>(payload);
+        onEnteredStateWeekendOnENOUGH(*typedPayload);
         return;
     }
 }

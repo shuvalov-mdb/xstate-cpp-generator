@@ -286,7 +286,7 @@ class {{it.generator.class()}} {
      * @param payload ownership is transferred to the user.
      */
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
-    virtual void onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}({{it.generator.capitalize(pair[0])}}Payload&& payload) {
+    virtual void onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition({{it.generator.class()}}TransitionPhase::ENTERED_STATE, _currentState.currentState, State::{{pair[1]}});
     }
@@ -491,8 +491,8 @@ template<typename SMSpec>
 void {{it.generator.class()}}<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
     if (event == Event::{{pair[0]}} && newState == State::{{pair[1]}}) {
-        {{it.generator.capitalize(pair[0])}}Payload* typedPayload = static_cast<{{it.generator.capitalize(pair[0])}}Payload*>(payload);
-        onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(std::move(*typedPayload));
+        std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload>* typedPayload = static_cast<std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload>*>(payload);
+        onEnteredState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(*typedPayload);
         return;
     }
 {{/each}}

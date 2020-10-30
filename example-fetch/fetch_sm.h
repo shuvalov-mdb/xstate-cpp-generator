@@ -3,7 +3,7 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template 'fetch.ts'.
- * Generated at Wed Oct 28 2020 22:38:24 GMT+0000 (UTC) from Xstate definition 'fetch.ts'.
+ * Generated at Fri Oct 30 2020 16:43:48 GMT+0000 (Coordinated Universal Time) from Xstate definition 'fetch.ts'.
  * The simplest command line to run the generation:
  *     ts-node 'fetch.ts'
  */
@@ -11,12 +11,14 @@
 #pragma once
 
 #include <cassert>
-#include <deque>
+#include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <sstream>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -101,14 +103,18 @@ struct DefaultFetchSMSpec {
      * Each Event has a payload attached, which is passed in to the related callbacks.
      * The type should be movable for efficiency.
      */
-    using EventFetchPayload = std::unique_ptr<std::nullptr_t>;
-    using EventResolvePayload = std::unique_ptr<std::nullptr_t>;
-    using EventRejectPayload = std::unique_ptr<std::nullptr_t>;
-    using EventRetryPayload = std::unique_ptr<std::nullptr_t>;
+    using EventFetchPayload = std::nullptr_t;
+    using EventResolvePayload = std::nullptr_t;
+    using EventRejectPayload = std::nullptr_t;
+    using EventRetryPayload = std::nullptr_t;
 
     /**
      * Actions are modeled in the Xstate definition, see https://xstate.js.org/docs/guides/actions.html.
      * This block is for transition actions.
+     */
+
+    /**
+     * This block is for entry and exit state actions.
      */
 };
 
@@ -158,27 +164,37 @@ class FetchSM {
         State previousState;
         /** The event that transitioned the SM from previousState to currentState */
         Event lastEvent;
-        /** 
-         * The SM can process events only in a serialized way. If this 'blockedForProcessingAnEvent' is false, the posted 
-         * event will be processed immediately, otherwise it will be posted to the queue and processed by the same 
-         * thread that is currently processing the previous Event. 
-         * This SM is strictly single-threaded it terms of processing all necessary callbacks, it is using the same 
-         * user thread that invoked a 'send Event' method to drain the whole queue.
-         */
-        bool blockedForProcessingAnEvent = false;
-        /** 
-         * The SM can process events only in a serialized way. This queue stores the events to be processed.
-         */
-        std::deque<std::function<void()>> eventQueue;
         /** Timestamp of the last transition, or the class instantiation if at initial state */
         std::chrono::system_clock::time_point lastTransitionTime = std::chrono::system_clock::now();
         /** Count of the transitions made so far */
         int totalTransitions = 0;
     };
 
-    FetchSM() {}
+    FetchSM() {
+        _eventsConsumerThread = std::make_unique<std::thread>([this] {
+            _eventsConsumerThreadLoop();  // Start when all class members are initialized.
+        });
+    }
 
-    virtual ~FetchSM() {}
+    virtual ~FetchSM() {
+        for (int i = 0; i < 10; ++i) {
+            if (isTerminated()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (!isTerminated()) {
+            std::cerr << "State Machine FetchSM is terminating "
+                << "without reaching the final state." << std::endl;
+        }
+        // Force it.
+        {
+            std::lock_guard<std::mutex> lck(_lock);
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();
+        }
+        _eventsConsumerThread->join();
+    }
 
     /**
      * Returns a copy of the current state, skipping some fields.
@@ -200,10 +216,10 @@ class FetchSM {
      * If the event queue is not empty, this adds the event into the queue and returns immediately. The events
      * in the queue will be processed sequentially by the same thread that is currently processing the front of the queue.
      */
-    void postEventFetch (FetchPayload&& payload);
-    void postEventResolve (ResolvePayload&& payload);
-    void postEventReject (RejectPayload&& payload);
-    void postEventRetry (RetryPayload&& payload);
+    void postEventFetch (std::shared_ptr<FetchPayload> payload);
+    void postEventResolve (std::shared_ptr<ResolvePayload> payload);
+    void postEventReject (std::shared_ptr<RejectPayload> payload);
+    void postEventRetry (std::shared_ptr<RetryPayload> payload);
 
     /**
      * All valid transitions from the current state of the State Machine.
@@ -215,10 +231,20 @@ class FetchSM {
 
     /**
      * Provides a mechanism to access the internal user-defined Context (see SMSpec::StateMachineContext).
+     * Warning: it is not allowed to call postEvent(), or currentState(), or any other method from inside
+     * this callback as it will be a deadlock.
      * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
      *   can be invoked concurrently from any thread and any of the callbacks declared below.
      */
     void accessContextLocked(std::function<void(StateMachineContext& userContext)> callback);
+
+    /**
+     * @returns true if State Machine reached the final state. Note that final state is optional.
+     */
+    bool isTerminated() const {
+        std::lock_guard<std::mutex> lck(_lock);
+        return _smIsTerminated;
+    }
 
     /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
@@ -256,19 +282,19 @@ class FetchSM {
      * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
      *   override another calback from the 'onEntered*State' below.
      */
-    virtual void onEnteringStateLoadingOnFETCH(State nextState, FetchPayload* payload) {
+    virtual void onEnteringStateLoadingOnFETCH(State nextState, std::shared_ptr<FetchPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
     }
-    virtual void onEnteringStateSuccessOnRESOLVE(State nextState, ResolvePayload* payload) {
+    virtual void onEnteringStateSuccessOnRESOLVE(State nextState, std::shared_ptr<ResolvePayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::success);
     }
-    virtual void onEnteringStateFailureOnREJECT(State nextState, RejectPayload* payload) {
+    virtual void onEnteringStateFailureOnREJECT(State nextState, std::shared_ptr<RejectPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::failure);
     }
-    virtual void onEnteringStateLoadingOnRETRY(State nextState, RetryPayload* payload) {
+    virtual void onEnteringStateLoadingOnRETRY(State nextState, std::shared_ptr<RetryPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::loading);
     }
@@ -280,19 +306,19 @@ class FetchSM {
      * It is safe to call postEvent*() to trigger the next transition from this method.
      * @param payload ownership is transferred to the user.
      */
-    virtual void onEnteredStateLoadingOnFETCH(FetchPayload&& payload) {
+    virtual void onEnteredStateLoadingOnFETCH(std::shared_ptr<FetchPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
     }
-    virtual void onEnteredStateSuccessOnRESOLVE(ResolvePayload&& payload) {
+    virtual void onEnteredStateSuccessOnRESOLVE(std::shared_ptr<ResolvePayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::success);
     }
-    virtual void onEnteredStateFailureOnREJECT(RejectPayload&& payload) {
+    virtual void onEnteredStateFailureOnREJECT(std::shared_ptr<RejectPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::failure);
     }
-    virtual void onEnteredStateLoadingOnRETRY(RetryPayload&& payload) {
+    virtual void onEnteredStateLoadingOnRETRY(std::shared_ptr<RetryPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(FetchSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::loading);
     }
@@ -321,7 +347,9 @@ class FetchSM {
 
   private:
     template<typename Payload>
-    void _postEventHelper(State state, Event event, Payload&& payload);
+    void _postEventHelper(State state, Event event, std::shared_ptr<Payload> payload);
+
+    void _eventsConsumerThreadLoop();
 
     void _leavingStateHelper(State fromState, State newState);
 
@@ -333,9 +361,20 @@ class FetchSM {
     // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
     void _enteredStateHelper(Event event, State newState, void* payload);
 
+    std::unique_ptr<std::thread> _eventsConsumerThread;
+
     mutable std::mutex _lock;
 
     CurrentState _currentState;
+
+    // The SM can process events only in a serialized way. This queue stores the events to be processed.
+    std::queue<std::function<void()>> _eventQueue;
+    // Variable to wake up the consumer.
+    std::condition_variable _eventQueueCondvar;
+
+    bool _insideAccessContextLocked = false;
+    bool _smIsTerminated = false;
+
     // Arbitrary user-defined data structure, see above.
     typename SMSpec::StateMachineContext _context;
 };
@@ -343,97 +382,78 @@ class FetchSM {
 /******   Internal implementation  ******/
 
 template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventFetch (FetchSM::FetchPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<FetchPayload>(std::move(payload))} ] () mutable {
-                postEventFetch (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void FetchSM<SMSpec>::postEventFetch (std::shared_ptr<FetchSM::FetchPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::FETCH, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, FetchSM::Event::FETCH, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventResolve (FetchSM::ResolvePayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<ResolvePayload>(std::move(payload))} ] () mutable {
-                postEventResolve (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void FetchSM<SMSpec>::postEventResolve (std::shared_ptr<FetchSM::ResolvePayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::RESOLVE, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, FetchSM::Event::RESOLVE, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventReject (FetchSM::RejectPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<RejectPayload>(std::move(payload))} ] () mutable {
-                postEventReject (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void FetchSM<SMSpec>::postEventReject (std::shared_ptr<FetchSM::RejectPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::REJECT, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, FetchSM::Event::REJECT, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 template <typename SMSpec>
-inline void FetchSM<SMSpec>::postEventRetry (FetchSM::RetryPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<RetryPayload>(std::move(payload))} ] () mutable {
-                postEventRetry (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void FetchSM<SMSpec>::postEventRetry (std::shared_ptr<FetchSM::RetryPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, FetchSM::Event::RETRY, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, FetchSM::Event::RETRY, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 
 template<typename SMSpec>
 template<typename Payload>
-void FetchSM<SMSpec>::_postEventHelper (FetchSM::State state, FetchSM::Event event, Payload&& payload) {
+void FetchSM<SMSpec>::_postEventHelper (FetchSM::State state, 
+    FetchSM::Event event, std::shared_ptr<Payload> payload) {
 
     // Step 1: Invoke the guard callback. TODO: implement.
 
@@ -445,12 +465,13 @@ void FetchSM<SMSpec>::_postEventHelper (FetchSM::State state, FetchSM::Event eve
             targetStates = &transitionEvent.second;
         }
     }
+
     if (targetStates == nullptr || targetStates->empty()) {
         logTransition(TransitionPhase::TRANSITION_NOT_FOUND, state, state);
-        std::lock_guard<std::mutex> lck(_lock);
-        _currentState.blockedForProcessingAnEvent = false;  // We are done.
         return;
     }
+
+    // This can be conditional if guards are implemented...
     State newState = (*targetStates)[0];
 
     // Step 3: Invoke the 'leaving the state' callback.
@@ -470,28 +491,36 @@ void FetchSM<SMSpec>::_postEventHelper (FetchSM::State state, FetchSM::Event eve
         _currentState.lastTransitionTime = std::chrono::system_clock::now();
         _currentState.lastEvent = event;
         ++_currentState.totalTransitions;
+        if (newState == State::success) {
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();  // SM will be terminated...
+        }
     }
 
     // Step 6: Invoke the 'entered the state' callback.
     _enteredStateHelper(event, newState, &payload);
+}
 
-    std::function<void()> nextCallback;
-    {
-        // Step 7: pick the next event and clear the processing flag.
-        std::lock_guard<std::mutex> lck(_lock);
-        if (!_currentState.eventQueue.empty()) {
-            nextCallback = std::move(_currentState.eventQueue.front());  // Keep the queue not empty.
-            _currentState.eventQueue.front() = nullptr;  // Make sure to signal other threads to not work on this queue.
+template<typename SMSpec>
+void FetchSM<SMSpec>::_eventsConsumerThreadLoop() {
+    while (true) {
+        std::function<void()> nextCallback;
+        {
+            std::unique_lock<std::mutex> ulock(_lock);
+            while (_eventQueue.empty() && !_smIsTerminated) {
+                _eventQueueCondvar.wait(ulock);
+            }
+            if (_smIsTerminated) {
+                break;
+            }
+            // The lock is re-acquired when 'wait' returns.
+            nextCallback = std::move(_eventQueue.front());
+            _eventQueue.pop();
         }
-        _currentState.blockedForProcessingAnEvent = false;  // We are done, even though we can have another step.
-    }
-
-    if (nextCallback) {
-        // Step 8: execute the next callback and then remove it from the queue.
-        nextCallback();
-        std::lock_guard<std::mutex> lck(_lock);
-        assert(_currentState.eventQueue.front() == nullptr);
-        _currentState.eventQueue.pop_front();
+        // Outside of the lock.
+        if (nextCallback) {
+            nextCallback();
+        }
     }
 }
 
@@ -515,24 +544,35 @@ void FetchSM<SMSpec>::_leavingStateHelper(State fromState, State newState) {
 
 template<typename SMSpec>
 void FetchSM<SMSpec>::_enteringStateHelper(Event event, State newState, void* payload) {
+    switch (newState) {
+    case State::idle:
+        break;
+    case State::loading:
+        break;
+    case State::success:
+        break;
+    case State::failure:
+        break;
+    }
+
     if (event == Event::FETCH && newState == State::loading) {
-        FetchPayload* typedPayload = static_cast<FetchPayload*>(payload);
-        onEnteringStateLoadingOnFETCH(newState, typedPayload);
+        std::shared_ptr<FetchPayload>* typedPayload = static_cast<std::shared_ptr<FetchPayload>*>(payload);
+        onEnteringStateLoadingOnFETCH(newState, *typedPayload);
         return;
     }
     if (event == Event::RESOLVE && newState == State::success) {
-        ResolvePayload* typedPayload = static_cast<ResolvePayload*>(payload);
-        onEnteringStateSuccessOnRESOLVE(newState, typedPayload);
+        std::shared_ptr<ResolvePayload>* typedPayload = static_cast<std::shared_ptr<ResolvePayload>*>(payload);
+        onEnteringStateSuccessOnRESOLVE(newState, *typedPayload);
         return;
     }
     if (event == Event::REJECT && newState == State::failure) {
-        RejectPayload* typedPayload = static_cast<RejectPayload*>(payload);
-        onEnteringStateFailureOnREJECT(newState, typedPayload);
+        std::shared_ptr<RejectPayload>* typedPayload = static_cast<std::shared_ptr<RejectPayload>*>(payload);
+        onEnteringStateFailureOnREJECT(newState, *typedPayload);
         return;
     }
     if (event == Event::RETRY && newState == State::loading) {
-        RetryPayload* typedPayload = static_cast<RetryPayload*>(payload);
-        onEnteringStateLoadingOnRETRY(newState, typedPayload);
+        std::shared_ptr<RetryPayload>* typedPayload = static_cast<std::shared_ptr<RetryPayload>*>(payload);
+        onEnteringStateLoadingOnRETRY(newState, *typedPayload);
         return;
     }
 }
@@ -544,23 +584,23 @@ void FetchSM<SMSpec>::_transitionActionsHelper(State fromState, Event event, voi
 template<typename SMSpec>
 void FetchSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
     if (event == Event::FETCH && newState == State::loading) {
-        FetchPayload* typedPayload = static_cast<FetchPayload*>(payload);
-        onEnteredStateLoadingOnFETCH(std::move(*typedPayload));
+        std::shared_ptr<FetchPayload>* typedPayload = static_cast<std::shared_ptr<FetchPayload>*>(payload);
+        onEnteredStateLoadingOnFETCH(*typedPayload);
         return;
     }
     if (event == Event::RESOLVE && newState == State::success) {
-        ResolvePayload* typedPayload = static_cast<ResolvePayload*>(payload);
-        onEnteredStateSuccessOnRESOLVE(std::move(*typedPayload));
+        std::shared_ptr<ResolvePayload>* typedPayload = static_cast<std::shared_ptr<ResolvePayload>*>(payload);
+        onEnteredStateSuccessOnRESOLVE(*typedPayload);
         return;
     }
     if (event == Event::REJECT && newState == State::failure) {
-        RejectPayload* typedPayload = static_cast<RejectPayload*>(payload);
-        onEnteredStateFailureOnREJECT(std::move(*typedPayload));
+        std::shared_ptr<RejectPayload>* typedPayload = static_cast<std::shared_ptr<RejectPayload>*>(payload);
+        onEnteredStateFailureOnREJECT(*typedPayload);
         return;
     }
     if (event == Event::RETRY && newState == State::loading) {
-        RetryPayload* typedPayload = static_cast<RetryPayload*>(payload);
-        onEnteredStateLoadingOnRETRY(std::move(*typedPayload));
+        std::shared_ptr<RetryPayload>* typedPayload = static_cast<std::shared_ptr<RetryPayload>*>(payload);
+        onEnteredStateLoadingOnRETRY(*typedPayload);
         return;
     }
 }
@@ -568,26 +608,33 @@ void FetchSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* pay
 template<typename SMSpec>
 void FetchSM<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
     std::lock_guard<std::mutex> lck(_lock);
+    // This variable is preventing the user from posting an event while inside the callback,
+    // as it will be a deadlock.
+    _insideAccessContextLocked = true;
     callback(_context);  // User can modify the context under lock.
+    _insideAccessContextLocked = false;
 }
 
 template<typename SMSpec>
 void FetchSM<SMSpec>::logTransition(TransitionPhase phase, State currentState, State nextState) const {
     switch (phase) {
     case TransitionPhase::LEAVING_STATE:
-        std::cout << phase << currentState << ", transitioning to " << nextState;
+        std::clog << phase << currentState << ", transitioning to " << nextState;
         break;
     case TransitionPhase::ENTERING_STATE:
-        std::cout << phase << nextState << " from " << currentState;
+        std::clog << phase << nextState << " from " << currentState;
         break;
     case TransitionPhase::ENTERED_STATE:
-        std::cout << phase << currentState;
+        std::clog << phase << currentState;
+        break;
+    case TransitionPhase::TRANSITION_NOT_FOUND:
+        std::clog << phase << "from " << currentState;
         break;
     default:
-        std::cout << "ERROR ";
+        std::clog << "ERROR ";
         break;
     }
-    std::cout << std::endl;
+    std::clog << std::endl;
 }
 
 

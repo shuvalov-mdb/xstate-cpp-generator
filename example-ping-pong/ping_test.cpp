@@ -52,10 +52,18 @@ TEST(StaticSMTests, States) {
             ASSERT_TRUE(false) << "This should never happen";
         }
 
-        currentState = machine.currentState();
-        ASSERT_EQ(currentState.lastEvent, event);
+        // As SM is asynchronous, the state may lag the expected.
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            currentState = machine.currentState();
+            if (currentState.lastEvent == event) {
+                break;
+            }
+            std::clog << "Waiting for transition " << event << std::endl;
+        }
     }
-    std::cout << "Made " << count << " transitions" << std::endl;
+    std::clog << "Made " << count << " transitions" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 // User context is some arbitrary payload attached to the State Machine. If none is supplied,
@@ -102,19 +110,34 @@ struct MySpec {
     // The name EventPongPayload is reserved by convention for every event.
     using EventPongPayload = MyPongPayload;
 
-    // Actions declared in the model.
-    std::function<void(PingSM<MySpec>* sm, EventStartPayload*)> savePongActorAddress = 
-        [] (PingSM<MySpec>* sm, EventStartPayload* payload) {
-            std::cout << payload->str << " " << payload->staticText << " inside savePongActorAddress" << std::endl;
-    };
-    std::function<void(PingSM<MySpec>* sm, EventStartPayload*)> spawnPongActor = 
-        [] (PingSM<MySpec>* sm, EventStartPayload* payload) {
-            std::cout << payload->str << " " << payload->staticText << " inside spawnPongActor" << std::endl;
-    };
-    std::function<void(PingSM<MySpec>* sm, EventPongPayload*)> sendPingToPongActor = 
-        [] (PingSM<MySpec>* sm, EventPongPayload* payload) {
-            std::cout << payload->str << " " << payload->staticText << " inside sendPingToPongActor" << std::endl;
-    };
+    /**
+     * This block is for transition actions.
+     */
+    static void savePongActorAddress (PingSM<MySpec>* sm, std::shared_ptr<EventStartPayload> payload) {
+        std::clog << payload->str << " " << payload->staticText << " inside savePongActorAddress" << std::endl;
+        sm->accessContextLocked([payload] (StateMachineContext& userContext) {
+            userContext.dataToKeepWhileInState = std::string(payload->staticText);
+        });
+    }
+    static void spawnPongActor (PingSM<MySpec>* sm, std::shared_ptr<EventStartPayload> payload) {
+        std::clog << payload->str << " " << payload->staticText << " inside spawnPongActor" << std::endl;
+        sm->accessContextLocked([payload] (StateMachineContext& userContext) {
+            userContext.dataToKeepWhileInState = std::string(payload->staticText);
+        });
+    }
+    static void sendPingToPongActor (PingSM<MySpec>* sm, std::shared_ptr<EventPongPayload> payload) {
+        std::clog << payload->str << " " << payload->staticText << " inside sendPingToPongActor" << std::endl;
+        sm->accessContextLocked([payload] (StateMachineContext& userContext) {
+            userContext.dataToKeepWhileInState = std::string(payload->staticText);
+        });
+    }
+
+    /**
+     * This block is for entry and exit state actions.
+     */
+    static void sendPingToPongActor (PingSM<MySpec>* sm) {
+        std::clog << "Do sendPingToPongActor" << std::endl;
+    }
 
 };
 
@@ -126,22 +149,22 @@ class MyTestStateMachine : public PingSM<MySpec> {
 
     // Overload the logging method to use the log system of your project.
     void logTransition(TransitionPhase phase, State currentState, State nextState) const final {
-        std::cout << "MyTestStateMachine the phase " << phase;
+        std::clog << "MyTestStateMachine the phase " << phase;
         switch (phase) {
         case TransitionPhase::LEAVING_STATE:
-            std::cout << currentState << ", transitioning to " << nextState;
+            std::clog << currentState << ", transitioning to " << nextState;
             break;
         case TransitionPhase::ENTERING_STATE:
-            std::cout << nextState << " from " << currentState;
+            std::clog << nextState << " from " << currentState;
             break;
         case TransitionPhase::ENTERED_STATE:
-            std::cout << currentState;
+            std::clog << currentState;
             break;
         default:
             assert(false && "This is impossible");
             break;
         }
-        std::cout << std::endl;
+        std::clog << std::endl;
     }
 
     // Overload 'onLeaving' method to cleanup some state or do some other action.
@@ -169,12 +192,14 @@ class SMTestFixture : public ::testing::Test {
     void postEvent(PingSMEvent event) {
         switch (event) {
         case PingSMEvent::START: {
-            PingSM<MySpec>::StartPayload payload;
-            _sm->postEventStart (std::move(payload));
+            std::shared_ptr<PingSM<MySpec>::StartPayload> payload =
+                std::make_shared<PingSM<MySpec>::StartPayload>();
+            _sm->postEventStart (payload);
         } break;
         case PingSMEvent::PONG: {
-            PingSM<MySpec>::PongPayload payload;
-            _sm->postEventPong (std::move(payload));
+            std::shared_ptr<PingSM<MySpec>::PongPayload> payload =
+                std::make_shared<PingSM<MySpec>::PongPayload>();
+            _sm->postEventPong (payload);
         } break;
         }
     }
@@ -189,17 +214,27 @@ TEST_F(SMTestFixture, States) {
         ASSERT_EQ(currentState.totalTransitions, count);
         auto validTransitions = _sm->validTransitionsFromCurrentState();
         if (validTransitions.empty()) {
+            std::clog << "No transitions from state " << currentState.currentState << std::endl;
             break;
         }
         // Make a random transition.
         const PingSMTransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
         const PingSMEvent event = transition.first;
+        std::clog << "Post event " << event << std::endl;
         postEvent(event);
 
-        currentState = _sm->currentState();
-        ASSERT_EQ(currentState.lastEvent, event);
+        // As SM is asynchronous, the state may lag the expected.
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            currentState = _sm->currentState();
+            if (currentState.lastEvent == event && currentState.totalTransitions == count + 1) {
+                break;
+            }
+            std::clog << "Waiting for transition " << event << std::endl;
+        }
     }
-    std::cout << "Made " << count << " transitions" << std::endl;
+    std::clog << "Made " << count << " transitions" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 }  // namespace

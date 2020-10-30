@@ -3,7 +3,7 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template 'ping_pong.ts'.
- * Generated at Thu Oct 29 2020 00:13:39 GMT+0000 (UTC) from Xstate definition 'ping_pong.ts'.
+ * Generated at Fri Oct 30 2020 16:44:58 GMT+0000 (Coordinated Universal Time) from Xstate definition 'ping_pong.ts'.
  * The simplest command line to run the generation:
  *     ts-node 'ping_pong.ts'
  */
@@ -11,12 +11,14 @@
 #pragma once
 
 #include <cassert>
-#include <deque>
+#include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <sstream>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -95,16 +97,21 @@ struct DefaultPingSMSpec {
      * Each Event has a payload attached, which is passed in to the related callbacks.
      * The type should be movable for efficiency.
      */
-    using EventStartPayload = std::unique_ptr<std::nullptr_t>;
-    using EventPongPayload = std::unique_ptr<std::nullptr_t>;
+    using EventStartPayload = std::nullptr_t;
+    using EventPongPayload = std::nullptr_t;
 
     /**
      * Actions are modeled in the Xstate definition, see https://xstate.js.org/docs/guides/actions.html.
      * This block is for transition actions.
      */
-    void savePongActorAddress (PingSM<DefaultPingSMSpec>* sm, EventStartPayload*) {}
-    void spawnPongActor (PingSM<DefaultPingSMSpec>* sm, EventStartPayload*) {}
-    void sendPingToPongActor (PingSM<DefaultPingSMSpec>* sm, EventPongPayload*) {}
+    static void savePongActorAddress (PingSM<DefaultPingSMSpec>* sm, std::shared_ptr<EventStartPayload>) {}
+    static void spawnPongActor (PingSM<DefaultPingSMSpec>* sm, std::shared_ptr<EventStartPayload>) {}
+    static void sendPingToPongActor (PingSM<DefaultPingSMSpec>* sm, std::shared_ptr<EventPongPayload>) {}
+
+    /**
+     * This block is for entry and exit state actions.
+     */
+    static void sendPingToPongActor (PingSM<DefaultPingSMSpec>* sm) {}
 };
 
 /**
@@ -147,27 +154,37 @@ class PingSM {
         State previousState;
         /** The event that transitioned the SM from previousState to currentState */
         Event lastEvent;
-        /** 
-         * The SM can process events only in a serialized way. If this 'blockedForProcessingAnEvent' is false, the posted 
-         * event will be processed immediately, otherwise it will be posted to the queue and processed by the same 
-         * thread that is currently processing the previous Event. 
-         * This SM is strictly single-threaded it terms of processing all necessary callbacks, it is using the same 
-         * user thread that invoked a 'send Event' method to drain the whole queue.
-         */
-        bool blockedForProcessingAnEvent = false;
-        /** 
-         * The SM can process events only in a serialized way. This queue stores the events to be processed.
-         */
-        std::deque<std::function<void()>> eventQueue;
         /** Timestamp of the last transition, or the class instantiation if at initial state */
         std::chrono::system_clock::time_point lastTransitionTime = std::chrono::system_clock::now();
         /** Count of the transitions made so far */
         int totalTransitions = 0;
     };
 
-    PingSM() {}
+    PingSM() {
+        _eventsConsumerThread = std::make_unique<std::thread>([this] {
+            _eventsConsumerThreadLoop();  // Start when all class members are initialized.
+        });
+    }
 
-    virtual ~PingSM() {}
+    virtual ~PingSM() {
+        for (int i = 0; i < 10; ++i) {
+            if (isTerminated()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (!isTerminated()) {
+            std::cerr << "State Machine PingSM is terminating "
+                << "without reaching the final state." << std::endl;
+        }
+        // Force it.
+        {
+            std::lock_guard<std::mutex> lck(_lock);
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();
+        }
+        _eventsConsumerThread->join();
+    }
 
     /**
      * Returns a copy of the current state, skipping some fields.
@@ -189,8 +206,8 @@ class PingSM {
      * If the event queue is not empty, this adds the event into the queue and returns immediately. The events
      * in the queue will be processed sequentially by the same thread that is currently processing the front of the queue.
      */
-    void postEventStart (StartPayload&& payload);
-    void postEventPong (PongPayload&& payload);
+    void postEventStart (std::shared_ptr<StartPayload> payload);
+    void postEventPong (std::shared_ptr<PongPayload> payload);
 
     /**
      * All valid transitions from the current state of the State Machine.
@@ -202,10 +219,20 @@ class PingSM {
 
     /**
      * Provides a mechanism to access the internal user-defined Context (see SMSpec::StateMachineContext).
+     * Warning: it is not allowed to call postEvent(), or currentState(), or any other method from inside
+     * this callback as it will be a deadlock.
      * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
      *   can be invoked concurrently from any thread and any of the callbacks declared below.
      */
     void accessContextLocked(std::function<void(StateMachineContext& userContext)> callback);
+
+    /**
+     * @returns true if State Machine reached the final state. Note that final state is optional.
+     */
+    bool isTerminated() const {
+        std::lock_guard<std::mutex> lck(_lock);
+        return _smIsTerminated;
+    }
 
     /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
@@ -237,11 +264,11 @@ class PingSM {
      * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
      *   override another calback from the 'onEntered*State' below.
      */
-    virtual void onEnteringStatePingingOnSTART(State nextState, StartPayload* payload) {
+    virtual void onEnteringStatePingingOnSTART(State nextState, std::shared_ptr<StartPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(PingSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::pinging);
     }
-    virtual void onEnteringStatePingingOnPONG(State nextState, PongPayload* payload) {
+    virtual void onEnteringStatePingingOnPONG(State nextState, std::shared_ptr<PongPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(PingSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::pinging);
     }
@@ -253,11 +280,11 @@ class PingSM {
      * It is safe to call postEvent*() to trigger the next transition from this method.
      * @param payload ownership is transferred to the user.
      */
-    virtual void onEnteredStatePingingOnSTART(StartPayload&& payload) {
+    virtual void onEnteredStatePingingOnSTART(std::shared_ptr<StartPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(PingSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::pinging);
     }
-    virtual void onEnteredStatePingingOnPONG(PongPayload&& payload) {
+    virtual void onEnteredStatePingingOnPONG(std::shared_ptr<PongPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(PingSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::pinging);
     }
@@ -282,7 +309,9 @@ class PingSM {
 
   private:
     template<typename Payload>
-    void _postEventHelper(State state, Event event, Payload&& payload);
+    void _postEventHelper(State state, Event event, std::shared_ptr<Payload> payload);
+
+    void _eventsConsumerThreadLoop();
 
     void _leavingStateHelper(State fromState, State newState);
 
@@ -294,9 +323,20 @@ class PingSM {
     // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
     void _enteredStateHelper(Event event, State newState, void* payload);
 
+    std::unique_ptr<std::thread> _eventsConsumerThread;
+
     mutable std::mutex _lock;
 
     CurrentState _currentState;
+
+    // The SM can process events only in a serialized way. This queue stores the events to be processed.
+    std::queue<std::function<void()>> _eventQueue;
+    // Variable to wake up the consumer.
+    std::condition_variable _eventQueueCondvar;
+
+    bool _insideAccessContextLocked = false;
+    bool _smIsTerminated = false;
+
     // Arbitrary user-defined data structure, see above.
     typename SMSpec::StateMachineContext _context;
 };
@@ -304,53 +344,44 @@ class PingSM {
 /******   Internal implementation  ******/
 
 template <typename SMSpec>
-inline void PingSM<SMSpec>::postEventStart (PingSM::StartPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<StartPayload>(std::move(payload))} ] () mutable {
-                postEventStart (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void PingSM<SMSpec>::postEventStart (std::shared_ptr<PingSM::StartPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, PingSM::Event::START, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, PingSM::Event::START, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 template <typename SMSpec>
-inline void PingSM<SMSpec>::postEventPong (PingSM::PongPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<PongPayload>(std::move(payload))} ] () mutable {
-                postEventPong (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void PingSM<SMSpec>::postEventPong (std::shared_ptr<PingSM::PongPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, PingSM::Event::PONG, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, PingSM::Event::PONG, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 
 template<typename SMSpec>
 template<typename Payload>
-void PingSM<SMSpec>::_postEventHelper (PingSM::State state, PingSM::Event event, Payload&& payload) {
+void PingSM<SMSpec>::_postEventHelper (PingSM::State state, 
+    PingSM::Event event, std::shared_ptr<Payload> payload) {
 
     // Step 1: Invoke the guard callback. TODO: implement.
 
@@ -362,12 +393,13 @@ void PingSM<SMSpec>::_postEventHelper (PingSM::State state, PingSM::Event event,
             targetStates = &transitionEvent.second;
         }
     }
+
     if (targetStates == nullptr || targetStates->empty()) {
         logTransition(TransitionPhase::TRANSITION_NOT_FOUND, state, state);
-        std::lock_guard<std::mutex> lck(_lock);
-        _currentState.blockedForProcessingAnEvent = false;  // We are done.
         return;
     }
+
+    // This can be conditional if guards are implemented...
     State newState = (*targetStates)[0];
 
     // Step 3: Invoke the 'leaving the state' callback.
@@ -387,28 +419,36 @@ void PingSM<SMSpec>::_postEventHelper (PingSM::State state, PingSM::Event event,
         _currentState.lastTransitionTime = std::chrono::system_clock::now();
         _currentState.lastEvent = event;
         ++_currentState.totalTransitions;
+        if (newState == State::UNDEFINED_OR_ERROR_STATE) {
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();  // SM will be terminated...
+        }
     }
 
     // Step 6: Invoke the 'entered the state' callback.
     _enteredStateHelper(event, newState, &payload);
+}
 
-    std::function<void()> nextCallback;
-    {
-        // Step 7: pick the next event and clear the processing flag.
-        std::lock_guard<std::mutex> lck(_lock);
-        if (!_currentState.eventQueue.empty()) {
-            nextCallback = std::move(_currentState.eventQueue.front());  // Keep the queue not empty.
-            _currentState.eventQueue.front() = nullptr;  // Make sure to signal other threads to not work on this queue.
+template<typename SMSpec>
+void PingSM<SMSpec>::_eventsConsumerThreadLoop() {
+    while (true) {
+        std::function<void()> nextCallback;
+        {
+            std::unique_lock<std::mutex> ulock(_lock);
+            while (_eventQueue.empty() && !_smIsTerminated) {
+                _eventQueueCondvar.wait(ulock);
+            }
+            if (_smIsTerminated) {
+                break;
+            }
+            // The lock is re-acquired when 'wait' returns.
+            nextCallback = std::move(_eventQueue.front());
+            _eventQueue.pop();
         }
-        _currentState.blockedForProcessingAnEvent = false;  // We are done, even though we can have another step.
-    }
-
-    if (nextCallback) {
-        // Step 8: execute the next callback and then remove it from the queue.
-        nextCallback();
-        std::lock_guard<std::mutex> lck(_lock);
-        assert(_currentState.eventQueue.front() == nullptr);
-        _currentState.eventQueue.pop_front();
+        // Outside of the lock.
+        if (nextCallback) {
+            nextCallback();
+        }
     }
 }
 
@@ -426,14 +466,22 @@ void PingSM<SMSpec>::_leavingStateHelper(State fromState, State newState) {
 
 template<typename SMSpec>
 void PingSM<SMSpec>::_enteringStateHelper(Event event, State newState, void* payload) {
+    switch (newState) {
+    case State::init:
+        break;
+    case State::pinging:
+        SMSpec::sendPingToPongActor(this);
+        break;
+    }
+
     if (event == Event::START && newState == State::pinging) {
-        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
-        onEnteringStatePingingOnSTART(newState, typedPayload);
+        std::shared_ptr<StartPayload>* typedPayload = static_cast<std::shared_ptr<StartPayload>*>(payload);
+        onEnteringStatePingingOnSTART(newState, *typedPayload);
         return;
     }
     if (event == Event::PONG && newState == State::pinging) {
-        PongPayload* typedPayload = static_cast<PongPayload*>(payload);
-        onEnteringStatePingingOnPONG(newState, typedPayload);
+        std::shared_ptr<PongPayload>* typedPayload = static_cast<std::shared_ptr<PongPayload>*>(payload);
+        onEnteringStatePingingOnPONG(newState, *typedPayload);
         return;
     }
 }
@@ -441,29 +489,29 @@ void PingSM<SMSpec>::_enteringStateHelper(Event event, State newState, void* pay
 template<typename SMSpec>
 void PingSM<SMSpec>::_transitionActionsHelper(State fromState, Event event, void* payload) {
     if (fromState == State::init && event == Event::START) {
-        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
-        SMSpec().savePongActorAddress(this, typedPayload);
+        std::shared_ptr<StartPayload>* typedPayload = static_cast<std::shared_ptr<StartPayload>*>(payload);
+        SMSpec::savePongActorAddress(this, *typedPayload);
     }
     if (fromState == State::init && event == Event::START) {
-        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
-        SMSpec().spawnPongActor(this, typedPayload);
+        std::shared_ptr<StartPayload>* typedPayload = static_cast<std::shared_ptr<StartPayload>*>(payload);
+        SMSpec::spawnPongActor(this, *typedPayload);
     }
     if (fromState == State::pinging && event == Event::PONG) {
-        PongPayload* typedPayload = static_cast<PongPayload*>(payload);
-        SMSpec().sendPingToPongActor(this, typedPayload);
+        std::shared_ptr<PongPayload>* typedPayload = static_cast<std::shared_ptr<PongPayload>*>(payload);
+        SMSpec::sendPingToPongActor(this, *typedPayload);
     }
 }
 
 template<typename SMSpec>
 void PingSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* payload) {
     if (event == Event::START && newState == State::pinging) {
-        StartPayload* typedPayload = static_cast<StartPayload*>(payload);
-        onEnteredStatePingingOnSTART(std::move(*typedPayload));
+        std::shared_ptr<StartPayload>* typedPayload = static_cast<std::shared_ptr<StartPayload>*>(payload);
+        onEnteredStatePingingOnSTART(*typedPayload);
         return;
     }
     if (event == Event::PONG && newState == State::pinging) {
-        PongPayload* typedPayload = static_cast<PongPayload*>(payload);
-        onEnteredStatePingingOnPONG(std::move(*typedPayload));
+        std::shared_ptr<PongPayload>* typedPayload = static_cast<std::shared_ptr<PongPayload>*>(payload);
+        onEnteredStatePingingOnPONG(*typedPayload);
         return;
     }
 }
@@ -471,7 +519,11 @@ void PingSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* payl
 template<typename SMSpec>
 void PingSM<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
     std::lock_guard<std::mutex> lck(_lock);
+    // This variable is preventing the user from posting an event while inside the callback,
+    // as it will be a deadlock.
+    _insideAccessContextLocked = true;
     callback(_context);  // User can modify the context under lock.
+    _insideAccessContextLocked = false;
 }
 
 template<typename SMSpec>
@@ -485,6 +537,9 @@ void PingSM<SMSpec>::logTransition(TransitionPhase phase, State currentState, St
         break;
     case TransitionPhase::ENTERED_STATE:
         std::clog << phase << currentState;
+        break;
+    case TransitionPhase::TRANSITION_NOT_FOUND:
+        std::clog << phase << "from " << currentState;
         break;
     default:
         std::clog << "ERROR ";

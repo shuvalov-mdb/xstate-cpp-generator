@@ -22,6 +22,10 @@ using [Xstate](https://github.com/davidkpiano/xstate) into C++ generated SM, no 
 * Arbitrary user-defined data structure (called Context) can be stored in the SM
 * Any event can have an arbitrary user-defined payload attached. The event payload is propagated to related callbacks
 
+## Resources
+* Quick start is right below
+* [Tutorial](TUTORIAL.md)
+
 ## Install and Quick Start Tutorial
 
 ### 1. Install the xstate-cpp-generator TypeScript package, locally (or globally with `-g` option):
@@ -82,8 +86,14 @@ CppGen.generateCpp({
 ```
 To visualize this State Machine copy-paste the 'Machine' method call to the [online vizualizer](https://xstate.js.org/viz/).
 
-### 3. And generate C++ with
+### 3. Generate C++
+Install all required dependencies:
 
+```bash
+   npm install
+```
+
+And run the C++ generator:
 ```bash
    ts-node engineer.ts
 ```
@@ -122,3 +132,6 @@ and run it with:
 ### V 1.0.3
 * Full support of entry, exit and transition Actions
 * Multi-threading bugfixes
+### V 1.0.4
+* Converted `onEnteredState()` from move sematics `&&` to shared_ptr
+* Started Tutorial

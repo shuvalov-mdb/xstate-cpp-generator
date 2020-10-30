@@ -72,10 +72,18 @@ TEST(StaticSMTests, States) {
             ASSERT_TRUE(false) << "This should never happen";
         }
 
-        currentState = machine.currentState();
-        ASSERT_EQ(currentState.lastEvent, event);
+        // As SM is asynchronous, the state may lag the expected.
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            currentState = machine.currentState();
+            if (currentState.lastEvent == event) {
+                break;
+            }
+            std::clog << "Waiting for transition " << event << std::endl;
+        }
     }
-    std::cout << "Made " << count << " transitions" << std::endl;
+    std::clog << "Made " << count << " transitions" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 // User context is some arbitrary payload attached to the State Machine. If none is supplied,
@@ -144,7 +152,13 @@ struct MySpec {
     // The name EventRetryPayload is reserved by convention for every event.
     using EventRetryPayload = MyRetryPayload;
 
-    // Actions declared in the model.
+    /**
+     * This block is for transition actions.
+     */
+
+    /**
+     * This block is for entry and exit state actions.
+     */
 
 };
 
@@ -156,22 +170,22 @@ class MyTestStateMachine : public FetchSM<MySpec> {
 
     // Overload the logging method to use the log system of your project.
     void logTransition(TransitionPhase phase, State currentState, State nextState) const final {
-        std::cout << "MyTestStateMachine the phase " << phase;
+        std::clog << "MyTestStateMachine the phase " << phase;
         switch (phase) {
         case TransitionPhase::LEAVING_STATE:
-            std::cout << currentState << ", transitioning to " << nextState;
+            std::clog << currentState << ", transitioning to " << nextState;
             break;
         case TransitionPhase::ENTERING_STATE:
-            std::cout << nextState << " from " << currentState;
+            std::clog << nextState << " from " << currentState;
             break;
         case TransitionPhase::ENTERED_STATE:
-            std::cout << currentState;
+            std::clog << currentState;
             break;
         default:
             assert(false && "This is impossible");
             break;
         }
-        std::cout << std::endl;
+        std::clog << std::endl;
     }
 
     // Overload 'onLeaving' method to cleanup some state or do some other action.
@@ -211,20 +225,24 @@ class SMTestFixture : public ::testing::Test {
     void postEvent(FetchSMEvent event) {
         switch (event) {
         case FetchSMEvent::FETCH: {
-            FetchSM<MySpec>::FetchPayload payload;
-            _sm->postEventFetch (std::move(payload));
+            std::shared_ptr<FetchSM<MySpec>::FetchPayload> payload =
+                std::make_shared<FetchSM<MySpec>::FetchPayload>();
+            _sm->postEventFetch (payload);
         } break;
         case FetchSMEvent::RESOLVE: {
-            FetchSM<MySpec>::ResolvePayload payload;
-            _sm->postEventResolve (std::move(payload));
+            std::shared_ptr<FetchSM<MySpec>::ResolvePayload> payload =
+                std::make_shared<FetchSM<MySpec>::ResolvePayload>();
+            _sm->postEventResolve (payload);
         } break;
         case FetchSMEvent::REJECT: {
-            FetchSM<MySpec>::RejectPayload payload;
-            _sm->postEventReject (std::move(payload));
+            std::shared_ptr<FetchSM<MySpec>::RejectPayload> payload =
+                std::make_shared<FetchSM<MySpec>::RejectPayload>();
+            _sm->postEventReject (payload);
         } break;
         case FetchSMEvent::RETRY: {
-            FetchSM<MySpec>::RetryPayload payload;
-            _sm->postEventRetry (std::move(payload));
+            std::shared_ptr<FetchSM<MySpec>::RetryPayload> payload =
+                std::make_shared<FetchSM<MySpec>::RetryPayload>();
+            _sm->postEventRetry (payload);
         } break;
         }
     }
@@ -239,17 +257,27 @@ TEST_F(SMTestFixture, States) {
         ASSERT_EQ(currentState.totalTransitions, count);
         auto validTransitions = _sm->validTransitionsFromCurrentState();
         if (validTransitions.empty()) {
+            std::clog << "No transitions from state " << currentState.currentState << std::endl;
             break;
         }
         // Make a random transition.
         const FetchSMTransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
         const FetchSMEvent event = transition.first;
+        std::clog << "Post event " << event << std::endl;
         postEvent(event);
 
-        currentState = _sm->currentState();
-        ASSERT_EQ(currentState.lastEvent, event);
+        // As SM is asynchronous, the state may lag the expected.
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            currentState = _sm->currentState();
+            if (currentState.lastEvent == event && currentState.totalTransitions == count + 1) {
+                break;
+            }
+            std::clog << "Waiting for transition " << event << std::endl;
+        }
     }
-    std::cout << "Made " << count << " transitions" << std::endl;
+    std::clog << "Made " << count << " transitions" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 }  // namespace
