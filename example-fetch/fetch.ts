@@ -36,6 +36,6 @@ generateCpp({
   xstateMachine: fetchMachine,
   destinationPath: "",
   namespace: "mongo",
-  pathForIncludes: "example-fetch",
+  pathForIncludes: "example-fetch/",
   tsScriptName: path.basename(__filename)
 });

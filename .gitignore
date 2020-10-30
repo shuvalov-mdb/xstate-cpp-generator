@@ -9,3 +9,8 @@ example-ping-pong/ping_sm.o
 example-ping-pong/ping_test.o
 example-ping-pong/ping_test
 dist
+demo-project/engineer_demo
+demo-project/engineer_demo.o
+demo-project/engineer_sm.o
+demo-project/engineer_test
+demo-project/engineer_test.o

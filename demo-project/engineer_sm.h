@@ -3,7 +3,7 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template 'engineer.ts'.
- * Generated at Thu Oct 29 2020 17:12:02 GMT+0000 (Coordinated Universal Time) from Xstate definition 'engineer.ts'.
+ * Generated at Fri Oct 30 2020 01:59:52 GMT+0000 (Coordinated Universal Time) from Xstate definition 'engineer.ts'.
  * The simplest command line to run the generation:
  *     ts-node 'engineer.ts'
  */
@@ -11,12 +11,14 @@
 #pragma once
 
 #include <cassert>
-#include <deque>
+#include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <sstream>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -28,6 +30,7 @@ enum class EngineerSMState {
     sleeping,
     working,
     eating,
+    weekend,
 };
 
 std::string EngineerSMStateToString(EngineerSMState state);
@@ -41,8 +44,9 @@ bool isValidEngineerSMState(EngineerSMState state);
 enum class EngineerSMEvent {
     UNDEFINED_OR_ERROR_EVENT = 0,
     TIMER,
-    TIRED,
     HUNGRY,
+    TIRED,
+    ENOUGH,
 };
 
 std::string EngineerSMEventToString(EngineerSMEvent event);
@@ -64,6 +68,7 @@ using EngineerSMTransitionToStatesPair = std::pair<EngineerSMEvent,
 const std::vector<EngineerSMTransitionToStatesPair>& EngineerSMValidTransitionsFromSleepingState();
 const std::vector<EngineerSMTransitionToStatesPair>& EngineerSMValidTransitionsFromWorkingState();
 const std::vector<EngineerSMTransitionToStatesPair>& EngineerSMValidTransitionsFromEatingState();
+const std::vector<EngineerSMTransitionToStatesPair>& EngineerSMValidTransitionsFromWeekendState();
 
 /**
  * Enum to indicate the current state transition phase in callbacks. This enum is used only for logging
@@ -98,17 +103,18 @@ struct DefaultEngineerSMSpec {
      * Each Event has a payload attached, which is passed in to the related callbacks.
      * The type should be movable for efficiency.
      */
-    using EventTimerPayload = std::unique_ptr<std::nullptr_t>;
-    using EventTiredPayload = std::unique_ptr<std::nullptr_t>;
-    using EventHungryPayload = std::unique_ptr<std::nullptr_t>;
+    using EventTimerPayload = std::nullptr_t;
+    using EventHungryPayload = std::nullptr_t;
+    using EventTiredPayload = std::nullptr_t;
+    using EventEnoughPayload = std::nullptr_t;
 
     /**
      * Actions are modeled in the Xstate definition, see https://xstate.js.org/docs/guides/actions.html.
      * This block is for transition actions.
      */
-    static void startHungryTimer (EngineerSM<DefaultEngineerSMSpec>* sm, EventTimerPayload*) {}
-    static void startTiredTimer (EngineerSM<DefaultEngineerSMSpec>* sm, EventTimerPayload*) {}
-    static void checkEmail (EngineerSM<DefaultEngineerSMSpec>* sm, EventHungryPayload*) {}
+    static void startHungryTimer (EngineerSM<DefaultEngineerSMSpec>* sm, std::shared_ptr<EventTimerPayload>) {}
+    static void startTiredTimer (EngineerSM<DefaultEngineerSMSpec>* sm, std::shared_ptr<EventTimerPayload>) {}
+    static void checkEmail (EngineerSM<DefaultEngineerSMSpec>* sm, std::shared_ptr<EventHungryPayload>) {}
 
     /**
      * This block is for entry and exit state actions.
@@ -116,9 +122,9 @@ struct DefaultEngineerSMSpec {
     static void startWakeupTimer (EngineerSM<DefaultEngineerSMSpec>* sm) {}
     static void checkEmail (EngineerSM<DefaultEngineerSMSpec>* sm) {}
     static void startHungryTimer (EngineerSM<DefaultEngineerSMSpec>* sm) {}
+    static void checkIfItsWeekend (EngineerSM<DefaultEngineerSMSpec>* sm) {}
     static void startShortTimer (EngineerSM<DefaultEngineerSMSpec>* sm) {}
     static void morningRoutine (EngineerSM<DefaultEngineerSMSpec>* sm) {}
-    static void startTiredTimer (EngineerSM<DefaultEngineerSMSpec>* sm) {}
 };
 
 /**
@@ -136,10 +142,12 @@ struct DefaultEngineerSMSpec {
  *    auto currentState = machine.currentState();
  *    EngineerSM<>::TimerPayload payloadTIMER;      // ..and init payload with data
  *    machine.postEventTimer (std::move(payloadTIMER));
- *    EngineerSM<>::TiredPayload payloadTIRED;      // ..and init payload with data
- *    machine.postEventTired (std::move(payloadTIRED));
  *    EngineerSM<>::HungryPayload payloadHUNGRY;      // ..and init payload with data
  *    machine.postEventHungry (std::move(payloadHUNGRY));
+ *    EngineerSM<>::TiredPayload payloadTIRED;      // ..and init payload with data
+ *    machine.postEventTired (std::move(payloadTIRED));
+ *    EngineerSM<>::EnoughPayload payloadENOUGH;      // ..and init payload with data
+ *    machine.postEventEnough (std::move(payloadENOUGH));
  * 
  *  Also see the generated unit tests in the example-* folders for more example code.
  */
@@ -152,8 +160,9 @@ class EngineerSM {
     using TransitionPhase = EngineerSMTransitionPhase;
     using StateMachineContext = typename SMSpec::StateMachineContext;
     using TimerPayload = typename SMSpec::EventTimerPayload;
-    using TiredPayload = typename SMSpec::EventTiredPayload;
     using HungryPayload = typename SMSpec::EventHungryPayload;
+    using TiredPayload = typename SMSpec::EventTiredPayload;
+    using EnoughPayload = typename SMSpec::EventEnoughPayload;
 
     /**
      * Structure represents the current in-memory state of the State Machine.
@@ -164,27 +173,37 @@ class EngineerSM {
         State previousState;
         /** The event that transitioned the SM from previousState to currentState */
         Event lastEvent;
-        /** 
-         * The SM can process events only in a serialized way. If this 'blockedForProcessingAnEvent' is false, the posted 
-         * event will be processed immediately, otherwise it will be posted to the queue and processed by the same 
-         * thread that is currently processing the previous Event. 
-         * This SM is strictly single-threaded it terms of processing all necessary callbacks, it is using the same 
-         * user thread that invoked a 'send Event' method to drain the whole queue.
-         */
-        bool blockedForProcessingAnEvent = false;
-        /** 
-         * The SM can process events only in a serialized way. This queue stores the events to be processed.
-         */
-        std::deque<std::function<void()>> eventQueue;
         /** Timestamp of the last transition, or the class instantiation if at initial state */
         std::chrono::system_clock::time_point lastTransitionTime = std::chrono::system_clock::now();
         /** Count of the transitions made so far */
         int totalTransitions = 0;
     };
 
-    EngineerSM() {}
+    EngineerSM() {
+        _eventsConsumerThread = std::make_unique<std::thread>([this] {
+            _eventsConsumerThreadLoop();  // Start when all class members are initialized.
+        });
+    }
 
-    virtual ~EngineerSM() {}
+    virtual ~EngineerSM() {
+        for (int i = 0; i < 10; ++i) {
+            if (isTerminated()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (!isTerminated()) {
+            std::cerr << "State Machine EngineerSM is terminating "
+                << "without reaching the final state." << std::endl;
+        }
+        // Force it.
+        {
+            std::lock_guard<std::mutex> lck(_lock);
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();
+        }
+        _eventsConsumerThread->join();
+    }
 
     /**
      * Returns a copy of the current state, skipping some fields.
@@ -206,9 +225,10 @@ class EngineerSM {
      * If the event queue is not empty, this adds the event into the queue and returns immediately. The events
      * in the queue will be processed sequentially by the same thread that is currently processing the front of the queue.
      */
-    void postEventTimer (TimerPayload&& payload);
-    void postEventTired (TiredPayload&& payload);
-    void postEventHungry (HungryPayload&& payload);
+    void postEventTimer (std::shared_ptr<TimerPayload> payload);
+    void postEventHungry (std::shared_ptr<HungryPayload> payload);
+    void postEventTired (std::shared_ptr<TiredPayload> payload);
+    void postEventEnough (std::shared_ptr<EnoughPayload> payload);
 
     /**
      * All valid transitions from the current state of the State Machine.
@@ -220,10 +240,20 @@ class EngineerSM {
 
     /**
      * Provides a mechanism to access the internal user-defined Context (see SMSpec::StateMachineContext).
+     * Warning: it is not allowed to call postEvent(), or currentState(), or any other method from inside
+     * this callback as it will be a deadlock.
      * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
      *   can be invoked concurrently from any thread and any of the callbacks declared below.
      */
     void accessContextLocked(std::function<void(StateMachineContext& userContext)> callback);
+
+    /**
+     * @returns true if State Machine reached the final state. Note that final state is optional.
+     */
+    bool isTerminated() const {
+        std::lock_guard<std::mutex> lck(_lock);
+        return _smIsTerminated;
+    }
 
     /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
@@ -251,6 +281,9 @@ class EngineerSM {
     virtual void onLeavingEatingState(State nextState) {
         logTransition(EngineerSMTransitionPhase::LEAVING_STATE, State::eating, nextState);
     }
+    virtual void onLeavingWeekendState(State nextState) {
+        logTransition(EngineerSMTransitionPhase::LEAVING_STATE, State::weekend, nextState);
+    }
 
     /**
      * 'onEnteringState' callbacks are invoked right before entering a new state. The internal 
@@ -258,17 +291,21 @@ class EngineerSM {
      * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
      *   override another calback from the 'onEntered*State' below.
      */
-    virtual void onEnteringStateWorkingOnTIMER(State nextState, TimerPayload* payload) {
+    virtual void onEnteringStateWorkingOnTIMER(State nextState, std::shared_ptr<TimerPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::working);
     }
-    virtual void onEnteringStateSleepingOnTIRED(State nextState, TiredPayload* payload) {
+    virtual void onEnteringStateEatingOnHUNGRY(State nextState, std::shared_ptr<HungryPayload> payload) {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(EngineerSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::eating);
+    }
+    virtual void onEnteringStateSleepingOnTIRED(State nextState, std::shared_ptr<TiredPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::sleeping);
     }
-    virtual void onEnteringStateEatingOnHUNGRY(State nextState, HungryPayload* payload) {
+    virtual void onEnteringStateWeekendOnENOUGH(State nextState, std::shared_ptr<EnoughPayload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
-        logTransition(EngineerSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::eating);
+        logTransition(EngineerSMTransitionPhase::ENTERING_STATE, _currentState.currentState, State::weekend);
     }
 
     /**
@@ -282,13 +319,17 @@ class EngineerSM {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::working);
     }
+    virtual void onEnteredStateEatingOnHUNGRY(HungryPayload&& payload) {
+        std::lock_guard<std::mutex> lck(_lock);
+        logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::eating);
+    }
     virtual void onEnteredStateSleepingOnTIRED(TiredPayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::sleeping);
     }
-    virtual void onEnteredStateEatingOnHUNGRY(HungryPayload&& payload) {
+    virtual void onEnteredStateWeekendOnENOUGH(EnoughPayload&& payload) {
         std::lock_guard<std::mutex> lck(_lock);
-        logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::eating);
+        logTransition(EngineerSMTransitionPhase::ENTERED_STATE, _currentState.currentState, State::weekend);
     }
 
 
@@ -303,6 +344,8 @@ class EngineerSM {
             return EngineerSMValidTransitionsFromWorkingState();
           case EngineerSMState::eating:
             return EngineerSMValidTransitionsFromEatingState();
+          case EngineerSMState::weekend:
+            return EngineerSMValidTransitionsFromWeekendState();
           default: {
             std::stringstream ss;
             ss << "invalid SM state " << state;
@@ -313,7 +356,9 @@ class EngineerSM {
 
   private:
     template<typename Payload>
-    void _postEventHelper(State state, Event event, Payload&& payload);
+    void _postEventHelper(State state, Event event, std::shared_ptr<Payload> payload);
+
+    void _eventsConsumerThreadLoop();
 
     void _leavingStateHelper(State fromState, State newState);
 
@@ -325,9 +370,20 @@ class EngineerSM {
     // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
     void _enteredStateHelper(Event event, State newState, void* payload);
 
+    std::unique_ptr<std::thread> _eventsConsumerThread;
+
     mutable std::mutex _lock;
 
     CurrentState _currentState;
+
+    // The SM can process events only in a serialized way. This queue stores the events to be processed.
+    std::queue<std::function<void()>> _eventQueue;
+    // Variable to wake up the consumer.
+    std::condition_variable _eventQueueCondvar;
+
+    bool _insideAccessContextLocked = false;
+    bool _smIsTerminated = false;
+
     // Arbitrary user-defined data structure, see above.
     typename SMSpec::StateMachineContext _context;
 };
@@ -335,76 +391,78 @@ class EngineerSM {
 /******   Internal implementation  ******/
 
 template <typename SMSpec>
-inline void EngineerSM<SMSpec>::postEventTimer (EngineerSM::TimerPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<TimerPayload>(std::move(payload))} ] () mutable {
-                postEventTimer (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void EngineerSM<SMSpec>::postEventTimer (std::shared_ptr<EngineerSM::TimerPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, EngineerSM::Event::TIMER, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, EngineerSM::Event::TIMER, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 template <typename SMSpec>
-inline void EngineerSM<SMSpec>::postEventTired (EngineerSM::TiredPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<TiredPayload>(std::move(payload))} ] () mutable {
-                postEventTired (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void EngineerSM<SMSpec>::postEventHungry (std::shared_ptr<EngineerSM::HungryPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, EngineerSM::Event::TIRED, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, EngineerSM::Event::HUNGRY, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 template <typename SMSpec>
-inline void EngineerSM<SMSpec>::postEventHungry (EngineerSM::HungryPayload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<HungryPayload>(std::move(payload))} ] () mutable {
-                postEventHungry (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void EngineerSM<SMSpec>::postEventTired (std::shared_ptr<EngineerSM::TiredPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, EngineerSM::Event::HUNGRY, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, EngineerSM::Event::TIRED, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
+}
+
+template <typename SMSpec>
+inline void EngineerSM<SMSpec>::postEventEnough (std::shared_ptr<EngineerSM::EnoughPayload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
+    }
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, EngineerSM::Event::ENOUGH, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 
 template<typename SMSpec>
 template<typename Payload>
-void EngineerSM<SMSpec>::_postEventHelper (EngineerSM::State state, EngineerSM::Event event, Payload&& payload) {
-    std::clog << "START EVENT " << event << std::endl;
+void EngineerSM<SMSpec>::_postEventHelper (EngineerSM::State state, 
+    EngineerSM::Event event, std::shared_ptr<Payload> payload) {
 
     // Step 1: Invoke the guard callback. TODO: implement.
 
@@ -417,70 +475,62 @@ void EngineerSM<SMSpec>::_postEventHelper (EngineerSM::State state, EngineerSM::
         }
     }
 
-    bool foundValidTransition = true;
     if (targetStates == nullptr || targetStates->empty()) {
         logTransition(TransitionPhase::TRANSITION_NOT_FOUND, state, state);
+        return;
+    }
+
+    // This can be conditional if guards are implemented...
+    State newState = (*targetStates)[0];
+
+    // Step 3: Invoke the 'leaving the state' callback.
+    _leavingStateHelper(state, newState);
+
+    // Step 4: Invoke the 'entering the state' callback.
+    _enteringStateHelper(event, newState, &payload);
+
+    // ... and the transiton actions.
+    _transitionActionsHelper(state, event, &payload);
+
+    {
+        // Step 5: do the transition.
         std::lock_guard<std::mutex> lck(_lock);
-        _currentState.blockedForProcessingAnEvent = false;  // We are done.
-        foundValidTransition = false;
-    }
-
-    if (foundValidTransition) {
-        State newState = (*targetStates)[0];
-
-        // Step 3: Invoke the 'leaving the state' callback.
-        _leavingStateHelper(state, newState);
-
-        // Step 4: Invoke the 'entering the state' callback.
-        _enteringStateHelper(event, newState, &payload);
-
-        // ... and the transiton actions.
-        _transitionActionsHelper(state, event, &payload);
-
-        {
-            // Step 5: do the transition.
-            std::lock_guard<std::mutex> lck(_lock);
-            _currentState.previousState = _currentState.currentState;
-            _currentState.currentState = newState;
-            _currentState.lastTransitionTime = std::chrono::system_clock::now();
-            _currentState.lastEvent = event;
-            ++_currentState.totalTransitions;
+        _currentState.previousState = _currentState.currentState;
+        _currentState.currentState = newState;
+        _currentState.lastTransitionTime = std::chrono::system_clock::now();
+        _currentState.lastEvent = event;
+        ++_currentState.totalTransitions;
+        if (newState == State::weekend) {
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();  // SM will be terminated...
         }
-
-        // Step 6: Invoke the 'entered the state' callback.
-        _enteredStateHelper(event, newState, &payload);
     }
 
-    // Drain the queue...
+    // Step 6: Invoke the 'entered the state' callback.
+    _enteredStateHelper(event, newState, &payload);
+}
+
+template<typename SMSpec>
+void EngineerSM<SMSpec>::_eventsConsumerThreadLoop() {
     while (true) {
         std::function<void()> nextCallback;
         {
-            // Step 7: pick the next event and clear the processing flag.
-            std::lock_guard<std::mutex> lck(_lock);
-            if (!_currentState.eventQueue.empty()) {
-                nextCallback = std::move(_currentState.eventQueue.front());  // Keep the queue not empty.
-                _currentState.eventQueue.front() = nullptr;  // Make sure to signal other threads to not work on this queue.
+            std::unique_lock<std::mutex> ulock(_lock);
+            while (_eventQueue.empty() && !_smIsTerminated) {
+                _eventQueueCondvar.wait(ulock);
             }
-            _currentState.blockedForProcessingAnEvent = false;  // We are done, even though we can have another step.
-            if (_currentState.eventQueue.empty()) {
+            if (_smIsTerminated) {
                 break;
             }
+            // The lock is re-acquired when 'wait' returns.
+            nextCallback = std::move(_eventQueue.front());
+            _eventQueue.pop();
         }
-
+        // Outside of the lock.
         if (nextCallback) {
-            // Step 8: execute the next callback and then remove it from the queue.
             nextCallback();
-            std::lock_guard<std::mutex> lck(_lock);
-            assert(_currentState.eventQueue.front() == nullptr);
-            _currentState.eventQueue.pop_front();
-
-            if (_currentState.eventQueue.empty()) {
-                break;  // No more events to process.
-            }
-            _currentState.blockedForProcessingAnEvent = true;
         }
     }
-    std::clog << "DONE EVENT " << event << std::endl;
 }
 
 template<typename SMSpec>
@@ -497,7 +547,9 @@ void EngineerSM<SMSpec>::_leavingStateHelper(State fromState, State newState) {
         onLeavingEatingState (newState);
         SMSpec::checkEmail(this);
         SMSpec::startHungryTimer(this);
-        SMSpec::startTiredTimer(this);
+        break;
+    case State::weekend:
+        onLeavingWeekendState (newState);
         break;
     }
 }
@@ -511,25 +563,33 @@ void EngineerSM<SMSpec>::_enteringStateHelper(Event event, State newState, void*
     case State::working:
         SMSpec::checkEmail(this);
         SMSpec::startHungryTimer(this);
+        SMSpec::checkIfItsWeekend(this);
         break;
     case State::eating:
         SMSpec::startShortTimer(this);
         break;
+    case State::weekend:
+        break;
     }
 
     if (event == Event::TIMER && newState == State::working) {
-        TimerPayload* typedPayload = static_cast<TimerPayload*>(payload);
-        onEnteringStateWorkingOnTIMER(newState, typedPayload);
-        return;
-    }
-    if (event == Event::TIRED && newState == State::sleeping) {
-        TiredPayload* typedPayload = static_cast<TiredPayload*>(payload);
-        onEnteringStateSleepingOnTIRED(newState, typedPayload);
+        std::shared_ptr<TimerPayload>* typedPayload = static_cast<std::shared_ptr<TimerPayload>*>(payload);
+        onEnteringStateWorkingOnTIMER(newState, *typedPayload);
         return;
     }
     if (event == Event::HUNGRY && newState == State::eating) {
-        HungryPayload* typedPayload = static_cast<HungryPayload*>(payload);
-        onEnteringStateEatingOnHUNGRY(newState, typedPayload);
+        std::shared_ptr<HungryPayload>* typedPayload = static_cast<std::shared_ptr<HungryPayload>*>(payload);
+        onEnteringStateEatingOnHUNGRY(newState, *typedPayload);
+        return;
+    }
+    if (event == Event::TIRED && newState == State::sleeping) {
+        std::shared_ptr<TiredPayload>* typedPayload = static_cast<std::shared_ptr<TiredPayload>*>(payload);
+        onEnteringStateSleepingOnTIRED(newState, *typedPayload);
+        return;
+    }
+    if (event == Event::ENOUGH && newState == State::weekend) {
+        std::shared_ptr<EnoughPayload>* typedPayload = static_cast<std::shared_ptr<EnoughPayload>*>(payload);
+        onEnteringStateWeekendOnENOUGH(newState, *typedPayload);
         return;
     }
 }
@@ -537,20 +597,20 @@ void EngineerSM<SMSpec>::_enteringStateHelper(Event event, State newState, void*
 template<typename SMSpec>
 void EngineerSM<SMSpec>::_transitionActionsHelper(State fromState, Event event, void* payload) {
     if (fromState == State::sleeping && event == Event::TIMER) {
-        TimerPayload* typedPayload = static_cast<TimerPayload*>(payload);
-        SMSpec::startHungryTimer(this, typedPayload);
+        std::shared_ptr<TimerPayload>* typedPayload = static_cast<std::shared_ptr<TimerPayload>*>(payload);
+        SMSpec::startHungryTimer(this, *typedPayload);
     }
     if (fromState == State::sleeping && event == Event::TIMER) {
-        TimerPayload* typedPayload = static_cast<TimerPayload*>(payload);
-        SMSpec::startTiredTimer(this, typedPayload);
+        std::shared_ptr<TimerPayload>* typedPayload = static_cast<std::shared_ptr<TimerPayload>*>(payload);
+        SMSpec::startTiredTimer(this, *typedPayload);
     }
     if (fromState == State::working && event == Event::HUNGRY) {
-        HungryPayload* typedPayload = static_cast<HungryPayload*>(payload);
-        SMSpec::checkEmail(this, typedPayload);
+        std::shared_ptr<HungryPayload>* typedPayload = static_cast<std::shared_ptr<HungryPayload>*>(payload);
+        SMSpec::checkEmail(this, *typedPayload);
     }
     if (fromState == State::eating && event == Event::TIMER) {
-        TimerPayload* typedPayload = static_cast<TimerPayload*>(payload);
-        SMSpec::startHungryTimer(this, typedPayload);
+        std::shared_ptr<TimerPayload>* typedPayload = static_cast<std::shared_ptr<TimerPayload>*>(payload);
+        SMSpec::startHungryTimer(this, *typedPayload);
     }
 }
 
@@ -561,14 +621,19 @@ void EngineerSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* 
         onEnteredStateWorkingOnTIMER(std::move(*typedPayload));
         return;
     }
+    if (event == Event::HUNGRY && newState == State::eating) {
+        HungryPayload* typedPayload = static_cast<HungryPayload*>(payload);
+        onEnteredStateEatingOnHUNGRY(std::move(*typedPayload));
+        return;
+    }
     if (event == Event::TIRED && newState == State::sleeping) {
         TiredPayload* typedPayload = static_cast<TiredPayload*>(payload);
         onEnteredStateSleepingOnTIRED(std::move(*typedPayload));
         return;
     }
-    if (event == Event::HUNGRY && newState == State::eating) {
-        HungryPayload* typedPayload = static_cast<HungryPayload*>(payload);
-        onEnteredStateEatingOnHUNGRY(std::move(*typedPayload));
+    if (event == Event::ENOUGH && newState == State::weekend) {
+        EnoughPayload* typedPayload = static_cast<EnoughPayload*>(payload);
+        onEnteredStateWeekendOnENOUGH(std::move(*typedPayload));
         return;
     }
 }
@@ -576,7 +641,11 @@ void EngineerSM<SMSpec>::_enteredStateHelper(Event event, State newState, void* 
 template<typename SMSpec>
 void EngineerSM<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
     std::lock_guard<std::mutex> lck(_lock);
+    // This variable is preventing the user from posting an event while inside the callback,
+    // as it will be a deadlock.
+    _insideAccessContextLocked = true;
     callback(_context);  // User can modify the context under lock.
+    _insideAccessContextLocked = false;
 }
 
 template<typename SMSpec>
@@ -590,6 +659,9 @@ void EngineerSM<SMSpec>::logTransition(TransitionPhase phase, State currentState
         break;
     case TransitionPhase::ENTERED_STATE:
         std::clog << phase << currentState;
+        break;
+    case TransitionPhase::TRANSITION_NOT_FOUND:
+        std::clog << phase << "from " << currentState;
         break;
     default:
         std::clog << "ERROR ";

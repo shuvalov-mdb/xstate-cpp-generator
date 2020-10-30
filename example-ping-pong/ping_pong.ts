@@ -31,6 +31,6 @@ generateCpp({
     xstateMachine: pingPongMachine,
     destinationPath: "",
     namespace: "mongo",
-    pathForIncludes: "example-ping-pong",
+    pathForIncludes: "example-ping-pong/",
     tsScriptName: path.basename(__filename)
   });

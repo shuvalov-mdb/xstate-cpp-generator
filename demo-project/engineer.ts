@@ -13,23 +13,26 @@ const engineerMachine = Machine({
             exit: 'morningRoutine',
             on: {
                 'TIMER': { target: 'working', actions: ['startHungryTimer', 'startTiredTimer'] },
-                'TIRED': { target: 'sleeping' }
             }
         },
         working: {
-            entry: ['checkEmail', 'startHungryTimer' ],
+            entry: ['checkEmail', 'startHungryTimer', 'checkIfItsWeekend' ],
             on: {
                 'HUNGRY': { target: 'eating', actions: ['checkEmail']},
-                'TIRED': { target: 'sleeping' }
+                'TIRED': { target: 'sleeping' },
+                'ENOUGH': { target: 'weekend' }
             },
         },
         eating: {
             entry: 'startShortTimer',
-            exit: [ 'checkEmail', 'startHungryTimer', 'startTiredTimer' ],
+            exit: [ 'checkEmail', 'startHungryTimer' ],
             on: {
                 'TIMER': { target: 'working', actions: ['startHungryTimer'] },
                 'TIRED': { target: 'sleeping' }
             }
+        },
+        weekend: {
+            type: 'final',
         }
     }
 });

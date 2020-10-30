@@ -17,6 +17,8 @@ std::string EngineerSMStateToString(EngineerSMState state) {
             return "EngineerSMState::working";
         case EngineerSMState::eating:
             return "EngineerSMState::eating";
+        case EngineerSMState::weekend:
+            return "EngineerSMState::weekend";
         default:
             return "ERROR";
     }
@@ -33,6 +35,7 @@ bool isValidEngineerSMState(EngineerSMState state) {
     if (state == EngineerSMState::sleeping) { return true; }
     if (state == EngineerSMState::working) { return true; }
     if (state == EngineerSMState::eating) { return true; }
+    if (state == EngineerSMState::weekend) { return true; }
     return false;
 }
 
@@ -42,10 +45,12 @@ std::string EngineerSMEventToString(EngineerSMEvent event) {
             return "UNDEFINED";
         case EngineerSMEvent::TIMER:
             return "EngineerSMEvent::TIMER";
-        case EngineerSMEvent::TIRED:
-            return "EngineerSMEvent::TIRED";
         case EngineerSMEvent::HUNGRY:
             return "EngineerSMEvent::HUNGRY";
+        case EngineerSMEvent::TIRED:
+            return "EngineerSMEvent::TIRED";
+        case EngineerSMEvent::ENOUGH:
+            return "EngineerSMEvent::ENOUGH";
         default:
             return "ERROR";
     }
@@ -54,8 +59,9 @@ std::string EngineerSMEventToString(EngineerSMEvent event) {
 bool isValidEngineerSMEvent(EngineerSMEvent event) {
     if (event == EngineerSMEvent::UNDEFINED_OR_ERROR_EVENT) { return true; }
     if (event == EngineerSMEvent::TIMER) { return true; }
-    if (event == EngineerSMEvent::TIRED) { return true; }
     if (event == EngineerSMEvent::HUNGRY) { return true; }
+    if (event == EngineerSMEvent::TIRED) { return true; }
+    if (event == EngineerSMEvent::ENOUGH) { return true; }
     return false;
 }
 
@@ -92,8 +98,6 @@ EngineerSMValidTransitionsFromSleepingState() {
     static const auto* transitions = new const std::vector<EngineerSMTransitionToStatesPair> {
         { EngineerSMEvent::TIMER, { 
               EngineerSMState::working           } },
-        { EngineerSMEvent::TIRED, { 
-              EngineerSMState::sleeping           } },
         };
     return *transitions;
 }
@@ -106,6 +110,8 @@ EngineerSMValidTransitionsFromWorkingState() {
               EngineerSMState::eating           } },
         { EngineerSMEvent::TIRED, { 
               EngineerSMState::sleeping           } },
+        { EngineerSMEvent::ENOUGH, { 
+              EngineerSMState::weekend           } },
         };
     return *transitions;
 }
@@ -118,6 +124,14 @@ EngineerSMValidTransitionsFromEatingState() {
               EngineerSMState::working           } },
         { EngineerSMEvent::TIRED, { 
               EngineerSMState::sleeping           } },
+        };
+    return *transitions;
+}
+
+// static 
+const std::vector<EngineerSMTransitionToStatesPair>& 
+EngineerSMValidTransitionsFromWeekendState() {
+    static const auto* transitions = new const std::vector<EngineerSMTransitionToStatesPair> {
         };
     return *transitions;
 }

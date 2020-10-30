@@ -27,25 +27,26 @@ struct EngineerSpec {
     using EventTimerPayload = std::nullptr_t;
     using EventHungryPayload = std::nullptr_t;
     using EventTiredPayload = std::nullptr_t;
+    using EventEnoughPayload = std::nullptr_t;
 
     /**
      * This block is for transition actions.
      */
-    static void startHungryTimer (EngineerSM<EngineerSpec>* sm, EventTimerPayload* payload) {
+    static void startHungryTimer (EngineerSM<EngineerSpec>* sm, std::shared_ptr<EventTimerPayload> payload) {
         std::clog << "Start HungryTimer from timer event" << std::endl;
         startTimer([sm] {
             std::clog << "Ok, I'm hungry" << std::endl;
             sm->postEventHungry(std::nullptr_t());
-        }, 100);
+        }, 1000);
     }
-    static void startTiredTimer (EngineerSM<EngineerSpec>* sm, EventTimerPayload* payload) {
+    static void startTiredTimer (EngineerSM<EngineerSpec>* sm, std::shared_ptr<EventTimerPayload> payload) {
         std::clog << "Start TiredTimer from timer event" << std::endl;
         startTimer([sm] {
             std::clog << "Ok, I'm tired" << std::endl;
             sm->postEventTired(std::nullptr_t());
-        }, 1000);
+        }, 2000);
     }
-    static void checkEmail (EngineerSM<EngineerSpec>* sm, EventHungryPayload* payload) {
+    static void checkEmail (EngineerSM<EngineerSpec>* sm, std::shared_ptr<EventHungryPayload> payload) {
         std::clog << "Checking Email, while being hugry! ok..." << std::endl;
     }
 
@@ -57,17 +58,32 @@ struct EngineerSpec {
         startTimer([sm] {
             std::clog << "Hey wake up" << std::endl;
             sm->postEventTimer(std::nullptr_t());
-        }, 1000);
+        }, 2000);
     }
     static void checkEmail (EngineerSM<EngineerSpec>* sm) {
         std::clog << "Checking Email, hmmm..." << std::endl;
     }
+
+    static void checkIfItsWeekend (EngineerSM<EngineerSpec>* sm) {
+        bool post = false;
+        sm->accessContextLocked([&post] (StateMachineContext& userContext) {
+            if (userContext.wakeUpCount >= 6) {
+                std::clog << "Wow it's weekend!" << std::endl;
+                post = true;
+            }
+        });
+        if (post) {
+            // To avoid deadlock this should be invoked outside of the accessContextLocked() method.
+            sm->postEventEnough(std::nullptr_t());
+        }
+    }
+
     static void startHungryTimer (EngineerSM<EngineerSpec>* sm) {
         std::clog << "Start HungryTimer" << std::endl;
         startTimer([sm] {
             std::clog << "Ok, I'm hungry" << std::endl;
             sm->postEventHungry(std::nullptr_t());
-        }, 100);
+        }, 800);
     }
 
     static void startShortTimer (EngineerSM<EngineerSpec>* sm) {
@@ -75,7 +91,7 @@ struct EngineerSpec {
         startTimer([sm] {
             std::clog << "Hey, timer is ringing." << std::endl;
             sm->postEventTimer(std::nullptr_t());
-        }, 10);
+        }, 100);
     }
 
     static void morningRoutine (EngineerSM<EngineerSpec>* sm) {
@@ -101,13 +117,11 @@ int main(int argc, char** argv) {
     // Kick off the state machine with a timer event...
     stateMachine.postEventTimer(std::nullptr_t());
 
-    int wakeUpCount = 0;  // We end the week after waking up 7 times.
-    while (wakeUpCount < 7) {
-        stateMachine.accessContextLocked([&wakeUpCount] (engineer_demo::EngineerContext& userContext) {
-            wakeUpCount = userContext.wakeUpCount;
-        });
+    while (!stateMachine.isTerminated()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        stateMachine.postEventTimer(std::nullptr_t());
     }
+    std::clog << "State machine is terminated" << std::endl;
+    // Let outstanding timers to expire, simplified approach for the demo.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     return 0;
 }

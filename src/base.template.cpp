@@ -3,7 +3,7 @@
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  */
 
-#include "{{it.properties.pathForIncludes}}/{{it.generator.outputHeaderShortname}}"
+#include "{{it.properties.pathForIncludes}}{{it.generator.outputHeaderShortname}}"
 
 namespace {{it.properties.namespace }} {
 

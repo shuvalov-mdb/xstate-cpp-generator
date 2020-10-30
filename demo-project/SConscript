@@ -1,0 +1,18 @@
+env = Environment()
+
+LIBS =''
+
+common_libs = ['gtest_main', 'gtest', 'pthread']
+env.Append( LIBS = common_libs )
+env.Append( CPPPATH = ['../'])
+
+env.Append(CCFLAGS=['-fsanitize=address,undefined',
+                    '-fno-omit-frame-pointer'],
+           LINKFLAGS='-fsanitize=address,undefined')
+
+env.Program('engineer_test', ['engineer_sm.cpp', 'engineer_test.cpp'], 
+            LIBS, LIBPATH='/opt/gtest/lib:/usr/local/lib', CXXFLAGS="-std=c++17")
+
+env.Program('engineer_demo', ['engineer_sm.cpp', 'engineer_demo.cpp'], 
+            LIBS, LIBPATH='/opt/gtest/lib:/usr/local/lib', CXXFLAGS="-std=c++17")
+

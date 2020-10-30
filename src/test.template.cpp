@@ -1,6 +1,6 @@
 // This test is automatically generated, do not edit.
 
-#include "{{it.properties.pathForIncludes}}/{{it.generator.outputHeaderShortname}}"
+#include "{{it.properties.pathForIncludes}}{{it.generator.outputHeaderShortname}}"
 
 #include <gtest/gtest.h>
 
@@ -46,10 +46,18 @@ TEST(StaticSMTests, States) {
             ASSERT_TRUE(false) << "This should never happen";
         }
 
-        currentState = machine.currentState();
-        ASSERT_EQ(currentState.lastEvent, event);
+        // As SM is asynchronous, the state may lag the expected.
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            currentState = machine.currentState();
+            if (currentState.lastEvent == event) {
+                break;
+            }
+            std::clog << "Waiting for transition " << event << std::endl;
+        }
     }
-    std::cout << "Made " << count << " transitions" << std::endl;
+    std::clog << "Made " << count << " transitions" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 // User context is some arbitrary payload attached to the State Machine. If none is supplied,
@@ -89,15 +97,26 @@ struct MySpec {
     using Event{{it.generator.capitalize(val)}}Payload = My{{it.generator.capitalize(val)}}Payload;
 {{/each}}
 
-    // Actions declared in the model.
-{{@foreach(it.machine.states) => state, val}}
-{{@each(it.generator.stateEventActions(state)) => pair, index}}
-    std::function<void({{it.generator.class()}}<MySpec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload*)> {{pair[1]}} = 
-        [] ({{it.generator.class()}}<MySpec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload* payload) {
-            std::cout << payload->str << " " << payload->staticText << " inside {{pair[1]}}" << std::endl;
-    };
+    /**
+     * This block is for transition actions.
+     */
+{{@each(it.generator.allTransitionActions()) => pair, index}}
+    static void {{pair[1]}} ({{it.generator.class()}}<MySpec>* sm, std::shared_ptr<Event{{it.generator.capitalize(pair[0])}}Payload> payload) {
+        std::clog << payload->str << " " << payload->staticText << " inside {{pair[1]}}" << std::endl;
+        sm->accessContextLocked([payload] (StateMachineContext& userContext) {
+            userContext.dataToKeepWhileInState = std::string(payload->staticText);
+        });
+    }
 {{/each}}
-{{/foreach}}
+
+    /**
+     * This block is for entry and exit state actions.
+     */
+{{@each(it.generator.allEntryExitActions()) => action, index}}
+    static void {{action}} ({{it.generator.class()}}<MySpec>* sm) {
+        std::clog << "Do {{action}}" << std::endl;
+    }
+{{/each}}
 
 };
 
@@ -109,22 +128,22 @@ class MyTestStateMachine : public {{it.generator.class()}}<MySpec> {
 
     // Overload the logging method to use the log system of your project.
     void logTransition(TransitionPhase phase, State currentState, State nextState) const final {
-        std::cout << "MyTestStateMachine the phase " << phase;
+        std::clog << "MyTestStateMachine the phase " << phase;
         switch (phase) {
         case TransitionPhase::LEAVING_STATE:
-            std::cout << currentState << ", transitioning to " << nextState;
+            std::clog << currentState << ", transitioning to " << nextState;
             break;
         case TransitionPhase::ENTERING_STATE:
-            std::cout << nextState << " from " << currentState;
+            std::clog << nextState << " from " << currentState;
             break;
         case TransitionPhase::ENTERED_STATE:
-            std::cout << currentState;
+            std::clog << currentState;
             break;
         default:
             assert(false && "This is impossible");
             break;
         }
-        std::cout << std::endl;
+        std::clog << std::endl;
     }
 
     // Overload 'onLeaving' method to cleanup some state or do some other action.
@@ -149,8 +168,9 @@ class SMTestFixture : public ::testing::Test {
         switch (event) {
 {{@each(it.generator.events()) => val, index}}
         case {{it.generator.class()}}Event::{{val}}: {
-            {{it.generator.class()}}<MySpec>::{{it.generator.capitalize(val)}}Payload payload;
-            _sm->postEvent{{it.generator.capitalize(val)}} (std::move(payload));
+            std::shared_ptr<{{it.generator.class()}}<MySpec>::{{it.generator.capitalize(val)}}Payload> payload =
+                std::make_shared<{{it.generator.class()}}<MySpec>::{{it.generator.capitalize(val)}}Payload>();
+            _sm->postEvent{{it.generator.capitalize(val)}} (payload);
         } break;
 {{/each}}
         }
@@ -166,17 +186,27 @@ TEST_F(SMTestFixture, States) {
         ASSERT_EQ(currentState.totalTransitions, count);
         auto validTransitions = _sm->validTransitionsFromCurrentState();
         if (validTransitions.empty()) {
+            std::clog << "No transitions from state " << currentState.currentState << std::endl;
             break;
         }
         // Make a random transition.
         const {{it.generator.class()}}TransitionToStatesPair& transition = validTransitions[std::rand() % validTransitions.size()];
         const {{it.generator.class()}}Event event = transition.first;
+        std::clog << "Post event " << event << std::endl;
         postEvent(event);
 
-        currentState = _sm->currentState();
-        ASSERT_EQ(currentState.lastEvent, event);
+        // As SM is asynchronous, the state may lag the expected.
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            currentState = _sm->currentState();
+            if (currentState.lastEvent == event && currentState.totalTransitions == count + 1) {
+                break;
+            }
+            std::clog << "Waiting for transition " << event << std::endl;
+        }
     }
-    std::cout << "Made " << count << " transitions" << std::endl;
+    std::clog << "Made " << count << " transitions" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 }  // namespace

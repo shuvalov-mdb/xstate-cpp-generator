@@ -11,12 +11,14 @@
 #pragma once
 
 #include <cassert>
-#include <deque>
+#include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <sstream>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -99,18 +101,23 @@ struct Default{{it.generator.class()}}Spec {
      * The type should be movable for efficiency.
      */
 {{@each(it.generator.events()) => val, index}}
-    using Event{{it.generator.capitalize(val)}}Payload = std::unique_ptr<std::nullptr_t>;
+    using Event{{it.generator.capitalize(val)}}Payload = std::nullptr_t;
 {{/each}}
 
     /**
      * Actions are modeled in the Xstate definition, see https://xstate.js.org/docs/guides/actions.html.
      * This block is for transition actions.
      */
-{{@foreach(it.machine.states) => state, val}}
-{{@each(it.generator.stateEventActions(state)) => pair, index}}
-    void {{pair[1]}} ({{it.generator.class()}}<Default{{it.generator.class()}}Spec>* sm, Event{{it.generator.capitalize(pair[0])}}Payload*) {}
+{{@each(it.generator.allTransitionActions()) => pair, index}}
+    static void {{pair[1]}} ({{it.generator.class()}}<Default{{it.generator.class()}}Spec>* sm, std::shared_ptr<Event{{it.generator.capitalize(pair[0])}}Payload>) {}
 {{/each}}
-{{/foreach}}
+
+    /**
+     * This block is for entry and exit state actions.
+     */
+{{@each(it.generator.allEntryExitActions()) => action, index}}
+    static void {{action}} ({{it.generator.class()}}<Default{{it.generator.class()}}Spec>* sm) {}
+{{/each}}
 };
 
 /**
@@ -154,27 +161,37 @@ class {{it.generator.class()}} {
         State previousState;
         /** The event that transitioned the SM from previousState to currentState */
         Event lastEvent;
-        /** 
-         * The SM can process events only in a serialized way. If this 'blockedForProcessingAnEvent' is false, the posted 
-         * event will be processed immediately, otherwise it will be posted to the queue and processed by the same 
-         * thread that is currently processing the previous Event. 
-         * This SM is strictly single-threaded it terms of processing all necessary callbacks, it is using the same 
-         * user thread that invoked a 'send Event' method to drain the whole queue.
-         */
-        bool blockedForProcessingAnEvent = false;
-        /** 
-         * The SM can process events only in a serialized way. This queue stores the events to be processed.
-         */
-        std::deque<std::function<void()>> eventQueue;
         /** Timestamp of the last transition, or the class instantiation if at initial state */
         std::chrono::system_clock::time_point lastTransitionTime = std::chrono::system_clock::now();
         /** Count of the transitions made so far */
         int totalTransitions = 0;
     };
 
-    {{it.generator.class()}}() {}
+    {{it.generator.class()}}() {
+        _eventsConsumerThread = std::make_unique<std::thread>([this] {
+            _eventsConsumerThreadLoop();  // Start when all class members are initialized.
+        });
+    }
 
-    virtual ~{{it.generator.class()}}() {}
+    virtual ~{{it.generator.class()}}() {
+        for (int i = 0; i < 10; ++i) {
+            if (isTerminated()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (!isTerminated()) {
+            std::cerr << "State Machine {{it.generator.class()}} is terminating "
+                << "without reaching the final state." << std::endl;
+        }
+        // Force it.
+        {
+            std::lock_guard<std::mutex> lck(_lock);
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();
+        }
+        _eventsConsumerThread->join();
+    }
 
     /**
      * Returns a copy of the current state, skipping some fields.
@@ -197,7 +214,7 @@ class {{it.generator.class()}} {
      * in the queue will be processed sequentially by the same thread that is currently processing the front of the queue.
      */
 {{@each(it.generator.events()) => val, index}}
-    void postEvent{{it.generator.capitalize(val)}} ({{it.generator.capitalize(val)}}Payload&& payload);
+    void postEvent{{it.generator.capitalize(val)}} (std::shared_ptr<{{it.generator.capitalize(val)}}Payload> payload);
 {{/each}}
 
     /**
@@ -210,10 +227,20 @@ class {{it.generator.class()}} {
 
     /**
      * Provides a mechanism to access the internal user-defined Context (see SMSpec::StateMachineContext).
+     * Warning: it is not allowed to call postEvent(), or currentState(), or any other method from inside
+     * this callback as it will be a deadlock.
      * @param callback is executed safely under lock for full R/W access to the Context. Thus, this method
      *   can be invoked concurrently from any thread and any of the callbacks declared below.
      */
     void accessContextLocked(std::function<void(StateMachineContext& userContext)> callback);
+
+    /**
+     * @returns true if State Machine reached the final state. Note that final state is optional.
+     */
+    bool isTerminated() const {
+        std::lock_guard<std::mutex> lck(_lock);
+        return _smIsTerminated;
+    }
 
     /**
      * The block of virtual callback methods the derived class can override to extend the SM functionality.
@@ -245,7 +272,7 @@ class {{it.generator.class()}} {
      *   override another calback from the 'onEntered*State' below.
      */
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
-    virtual void onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(State nextState, {{it.generator.capitalize(pair[0])}}Payload* payload) {
+    virtual void onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(State nextState, std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload> payload) {
         std::lock_guard<std::mutex> lck(_lock);
         logTransition({{it.generator.class()}}TransitionPhase::ENTERING_STATE, _currentState.currentState, State::{{pair[1]}});
     }
@@ -285,7 +312,9 @@ class {{it.generator.class()}} {
 
   private:
     template<typename Payload>
-    void _postEventHelper(State state, Event event, Payload&& payload);
+    void _postEventHelper(State state, Event event, std::shared_ptr<Payload> payload);
+
+    void _eventsConsumerThreadLoop();
 
     void _leavingStateHelper(State fromState, State newState);
 
@@ -297,9 +326,20 @@ class {{it.generator.class()}} {
     // The implementation will cast the void* of 'payload' back to full type to invoke the callback.
     void _enteredStateHelper(Event event, State newState, void* payload);
 
+    std::unique_ptr<std::thread> _eventsConsumerThread;
+
     mutable std::mutex _lock;
 
     CurrentState _currentState;
+
+    // The SM can process events only in a serialized way. This queue stores the events to be processed.
+    std::queue<std::function<void()>> _eventQueue;
+    // Variable to wake up the consumer.
+    std::condition_variable _eventQueueCondvar;
+
+    bool _insideAccessContextLocked = false;
+    bool _smIsTerminated = false;
+
     // Arbitrary user-defined data structure, see above.
     typename SMSpec::StateMachineContext _context;
 };
@@ -308,32 +348,28 @@ class {{it.generator.class()}} {
 
 {{@each(it.generator.events()) => val, index}}
 template <typename SMSpec>
-inline void {{it.generator.class()}}<SMSpec>::postEvent{{it.generator.capitalize(val)}} ({{it.generator.class()}}::{{it.generator.capitalize(val)}}Payload&& payload) {
-    State currentState;
-    {
-        std::lock_guard<std::mutex> lck(_lock);
-        // If the SM is currently processing another event, adds this one to the queue. The thread processing
-        // that event is responsible to drain the queue, this is why we also check for the queue size.
-        if (_currentState.blockedForProcessingAnEvent || !_currentState.eventQueue.empty()) {
-            std::function<void()> eventCb{[ this, p{std::make_shared<{{it.generator.capitalize(val)}}Payload>(std::move(payload))} ] () mutable {
-                postEvent{{it.generator.capitalize(val)}} (std::move(*p));
-            }};
-            _currentState.eventQueue.emplace_back(eventCb);
-            return;  // Returns immediately, the event will be posted asynchronously.
-        }
-
-        currentState = _currentState.currentState;
-        _currentState.blockedForProcessingAnEvent = true;
+inline void {{it.generator.class()}}<SMSpec>::postEvent{{it.generator.capitalize(val)}} (std::shared_ptr<{{it.generator.class()}}::{{it.generator.capitalize(val)}}Payload> payload) {
+    if (_insideAccessContextLocked) {
+        // Intentianally not locked, we are checking for deadline here...
+        static constexpr char error[] = "It is prohibited to post an event from inside the accessContextLocked()";
+        std::cerr << error << std::endl;
+        assert(false);
     }
-    // Event processing is done outside of the '_lock' as the 'blockedForProcessingAnEvent' flag is guarding us.
-    _postEventHelper(currentState, {{it.generator.class()}}::Event::{{val}}, std::move(payload));
+    std::lock_guard<std::mutex> lck(_lock);
+    State currentState = _currentState.currentState;
+    std::function<void()> eventCb{[ this, currentState, payload ] () mutable {
+        _postEventHelper(currentState, {{it.generator.class()}}::Event::{{val}}, payload);
+    }};
+    _eventQueue.emplace(eventCb);
+    _eventQueueCondvar.notify_one();
 }
 
 {{/each}}
 
 template<typename SMSpec>
 template<typename Payload>
-void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}}::State state, {{it.generator.class()}}::Event event, Payload&& payload) {
+void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}}::State state, 
+    {{it.generator.class()}}::Event event, std::shared_ptr<Payload> payload) {
 
     // Step 1: Invoke the guard callback. TODO: implement.
 
@@ -345,12 +381,13 @@ void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}
             targetStates = &transitionEvent.second;
         }
     }
+
     if (targetStates == nullptr || targetStates->empty()) {
         logTransition(TransitionPhase::TRANSITION_NOT_FOUND, state, state);
-        std::lock_guard<std::mutex> lck(_lock);
-        _currentState.blockedForProcessingAnEvent = false;  // We are done.
         return;
     }
+
+    // This can be conditional if guards are implemented...
     State newState = (*targetStates)[0];
 
     // Step 3: Invoke the 'leaving the state' callback.
@@ -370,28 +407,36 @@ void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}
         _currentState.lastTransitionTime = std::chrono::system_clock::now();
         _currentState.lastEvent = event;
         ++_currentState.totalTransitions;
+        if (newState == State::{{it.generator.finalState()}}) {
+            _smIsTerminated = true;
+            _eventQueueCondvar.notify_one();  // SM will be terminated...
+        }
     }
 
     // Step 6: Invoke the 'entered the state' callback.
     _enteredStateHelper(event, newState, &payload);
+}
 
-    std::function<void()> nextCallback;
-    {
-        // Step 7: pick the next event and clear the processing flag.
-        std::lock_guard<std::mutex> lck(_lock);
-        if (!_currentState.eventQueue.empty()) {
-            nextCallback = std::move(_currentState.eventQueue.front());  // Keep the queue not empty.
-            _currentState.eventQueue.front() = nullptr;  // Make sure to signal other threads to not work on this queue.
+template<typename SMSpec>
+void {{it.generator.class()}}<SMSpec>::_eventsConsumerThreadLoop() {
+    while (true) {
+        std::function<void()> nextCallback;
+        {
+            std::unique_lock<std::mutex> ulock(_lock);
+            while (_eventQueue.empty() && !_smIsTerminated) {
+                _eventQueueCondvar.wait(ulock);
+            }
+            if (_smIsTerminated) {
+                break;
+            }
+            // The lock is re-acquired when 'wait' returns.
+            nextCallback = std::move(_eventQueue.front());
+            _eventQueue.pop();
         }
-        _currentState.blockedForProcessingAnEvent = false;  // We are done, even though we can have another step.
-    }
-
-    if (nextCallback) {
-        // Step 8: execute the next callback and then remove it from the queue.
-        nextCallback();
-        std::lock_guard<std::mutex> lck(_lock);
-        assert(_currentState.eventQueue.front() == nullptr);
-        _currentState.eventQueue.pop_front();
+        // Outside of the lock.
+        if (nextCallback) {
+            nextCallback();
+        }
     }
 }
 
@@ -401,6 +446,9 @@ void {{it.generator.class()}}<SMSpec>::_leavingStateHelper(State fromState, Stat
 {{@foreach(it.machine.states) => key, val}}
     case State::{{key}}:
         onLeaving{{it.generator.capitalize(key)}}State (newState);
+{{@each(it.generator.allExitActions(key)) => action, index}}
+        SMSpec::{{action}}(this);
+{{/each}}
         break;
 {{/foreach}}
     }
@@ -408,10 +456,20 @@ void {{it.generator.class()}}<SMSpec>::_leavingStateHelper(State fromState, Stat
 
 template<typename SMSpec>
 void {{it.generator.class()}}<SMSpec>::_enteringStateHelper(Event event, State newState, void* payload) {
+    switch (newState) {
+{{@foreach(it.machine.states) => key, val}}
+    case State::{{key}}:
+{{@each(it.generator.allEntryActions(key)) => action, index}}
+        SMSpec::{{action}}(this);
+{{/each}}
+        break;
+{{/foreach}}
+    }
+
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
     if (event == Event::{{pair[0]}} && newState == State::{{pair[1]}}) {
-        {{it.generator.capitalize(pair[0])}}Payload* typedPayload = static_cast<{{it.generator.capitalize(pair[0])}}Payload*>(payload);
-        onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(newState, typedPayload);
+        std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload>* typedPayload = static_cast<std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload>*>(payload);
+        onEnteringState{{it.generator.capitalize(pair[1])}}On{{pair[0]}}(newState, *typedPayload);
         return;
     }
 {{/each}}
@@ -420,10 +478,10 @@ void {{it.generator.class()}}<SMSpec>::_enteringStateHelper(Event event, State n
 template<typename SMSpec>
 void {{it.generator.class()}}<SMSpec>::_transitionActionsHelper(State fromState, Event event, void* payload) {
 {{@foreach(it.machine.states) => state, val}}
-{{@each(it.generator.stateEventActions(state)) => pair, index}}
+{{@each(it.generator.allTransitionActions(state)) => pair, index}}
     if (fromState == State::{{state}} && event == Event::{{pair[0]}}) {
-        {{it.generator.capitalize(pair[0])}}Payload* typedPayload = static_cast<{{it.generator.capitalize(pair[0])}}Payload*>(payload);
-        SMSpec().{{pair[1]}}(this, typedPayload);
+        std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload>* typedPayload = static_cast<std::shared_ptr<{{it.generator.capitalize(pair[0])}}Payload>*>(payload);
+        SMSpec::{{pair[1]}}(this, *typedPayload);
     }
 {{/each}}
 {{/foreach}}
@@ -443,7 +501,11 @@ void {{it.generator.class()}}<SMSpec>::_enteredStateHelper(Event event, State ne
 template<typename SMSpec>
 void {{it.generator.class()}}<SMSpec>::accessContextLocked(std::function<void(StateMachineContext& userContext)> callback) {
     std::lock_guard<std::mutex> lck(_lock);
+    // This variable is preventing the user from posting an event while inside the callback,
+    // as it will be a deadlock.
+    _insideAccessContextLocked = true;
     callback(_context);  // User can modify the context under lock.
+    _insideAccessContextLocked = false;
 }
 
 template<typename SMSpec>
@@ -457,6 +519,9 @@ void {{it.generator.class()}}<SMSpec>::logTransition(TransitionPhase phase, Stat
         break;
     case TransitionPhase::ENTERED_STATE:
         std::clog << phase << currentState;
+        break;
+    case TransitionPhase::TRANSITION_NOT_FOUND:
+        std::clog << phase << "from " << currentState;
         break;
     default:
         std::clog << "ERROR ";

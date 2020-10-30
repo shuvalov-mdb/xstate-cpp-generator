@@ -76,7 +76,7 @@ export class Generator {
     }
 
     events() {
-        var result = new Set<string>();
+        var result: Set<string> = new Set<string>();
         Object.keys(this.machine.states).forEach(nodeName => {
             var stateObj: StateNode<any, any, EventObject> = this.machine.states[nodeName];
             Object.keys(stateObj.on).forEach(eventName => {
@@ -122,18 +122,69 @@ export class Generator {
     }
 
     // @returns pair [ event, action ]
-    stateEventActions(state: string): [string, string][] {
-        var result: [string, string][] = [];
-        var stateObj: StateNode<any, any, EventObject> = this.machine.states[state];
-        Object.keys(stateObj.on).forEach(eventName => {
-            var targetStates = stateObj.on[eventName];
-            targetStates.forEach(targetState => {
-                targetState["actions"].forEach(action => {
-                    result.push([eventName, action.toString()]);
+    allTransitionActions(state?: string): [string, string][] {
+        // Map prevents duplicate methods generation.
+        var map: Map<string, [string, string]> = new Map<string, [string, string]>();
+        Object.keys(this.machine.states).forEach(nodeName => {
+            if (state != undefined && state != nodeName) {
+                return;  // Continue to next iteration.
+            }
+            var stateObj: StateNode<any, any, EventObject> = this.machine.states[nodeName];
+            Object.keys(stateObj.on).forEach(eventName => {
+                var targetStates = stateObj.on[eventName];
+                targetStates.forEach(targetState => {
+                    targetState["actions"].forEach(action => {
+                        map.set(eventName + action.toString(), [eventName, action.toString()]);
+                    });
                 });
             });
         });
+        var result: [string, string][] = [];
+        map.forEach((value: [string, string], key: string) => {
+            result.push(value);
+        });
         return result;
+    }
+
+    // @returns action[]
+    allEntryExitActions(state?: string): string[] {
+        // Set prevents duplicate methods generation.
+        var result: Set<string> = new Set<string>();
+        this.allEntryActions(state).forEach(item => result.add(item));
+        this.allExitActions(state).forEach(item => result.add(item));
+        return Array.from(result.values());
+    }
+
+    // @returns action[]
+    allEntryActions(state?: string): string[] {
+        // Set prevents duplicate methods generation.
+        var result: Set<string> = new Set<string>();
+        Object.keys(this.machine.states).forEach(nodeName => {
+            if (state != undefined && state != nodeName) {
+                return;  // Continue to next iteration.
+            }
+            var stateObj: StateNode<any, any, EventObject> = this.machine.states[nodeName];
+            stateObj.onEntry.forEach(actionName => {
+                result.add(actionName.type);
+            });
+        });
+        return Array.from(result.values());
+    }
+
+    // @returns action[]
+    allExitActions(state?: string): string[] {
+        // Set prevents duplicate methods generation.
+        var result: Set<string> = new Set<string>();
+        Object.keys(this.machine.states).forEach(nodeName => {
+            if (state != undefined && state != nodeName) {
+                return;  // Continue to next iteration.
+            }
+            var stateObj: StateNode<any, any, EventObject> = this.machine.states[nodeName];
+            stateObj.onExit.forEach(actionName => {
+                result.add(actionName.type);
+            });
+        });
+        return Array.from(result.values());
     }
 
     initialState(): string {
@@ -141,6 +192,17 @@ export class Generator {
             return this.machine.initial.toString();
         }
         return "ERROR";
+    }
+
+    finalState(): string {
+        var result: string = "UNDEFINED_OR_ERROR_STATE";
+        Object.keys(this.machine.states).forEach(nodeName => {
+            var stateObj: StateNode<any, any, EventObject> = this.machine.states[nodeName];
+            if (stateObj.type.toString() == 'final') {
+                result = nodeName;
+            }
+        });
+        return result;
     }
 
     annotation(): string {
