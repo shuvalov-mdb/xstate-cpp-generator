@@ -10,7 +10,7 @@ using [Xstate](https://github.com/davidkpiano/xstate) into C++ generated SM, no 
 ## Tutorials and Documentation
 * Quick start is right below
 * [Tutorial](TUTORIAL.md)
-* [Video tutorial](https://youtu.be/_cRquls_lOg)
+* Video tutorial: [Part 1](https://youtu.be/DnuJFUR1SgA), [Part 2](https://youtu.be/8TTfRrmNu0s), and [Part 3](https://youtu.be/HoH68709Sq8)
 
 ## Features
 
