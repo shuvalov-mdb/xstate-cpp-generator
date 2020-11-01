@@ -1,6 +1,8 @@
 /** 
  * This header is automatically generated using the Xstate to C++ code generator:
- *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
+ *    https://github.com/shuvalov-mdb/xstate-cpp-generator
+ *    Copyright (c) 2020 Andrew Shuvalov
+ *    License: MIT https://opensource.org/licenses/MIT
  *
  * Please do not edit. If changes are needed, regenerate using the TypeScript template '{{it.properties.tsScriptName}}'.
  * Generated at {{it.generator.annotation()}} from Xstate definition '{{it.properties.tsScriptName}}'.
