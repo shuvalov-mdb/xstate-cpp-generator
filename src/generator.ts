@@ -21,13 +21,26 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-const Xst = require('xstate');
-const fs = require('fs');
-const Sqrl = require('squirrelly');
-const path = require('path');
+//import * as xstate from 'xstate';
+import * as squirrelly from 'squirrelly';
 
-import { Machine, MachineConfig, StateNode, StatesConfig, StateSchema, Event, EventObject } from 'xstate';
-import { CppStateMachineGeneratorProperties } from './cpp_state_machine_generator';
+import * as fs from 'fs';
+import * as path from 'path';
+
+import type { StateNode, EventObject } from 'xstate';
+
+export interface CppStateMachineGeneratorProperties {
+    /** Xsate Machine defined using Xstate API */
+    xstateMachine: StateNode;
+    /** Destination path for generated C++ files. */
+    destinationPath: string;
+    /** Namespace for the generated C++ files */
+    namespace: string;
+    /** When the generated .cpp files need to include the generated headers, this path will be used. */
+    pathForIncludes: string;
+    /** Name of the script containing the model for better logging */
+    tsScriptName?: string;
+}
 
 export class Generator {
     readonly properties: CppStateMachineGeneratorProperties;
@@ -40,7 +53,7 @@ export class Generator {
     constructor(properties: CppStateMachineGeneratorProperties) {
         this.properties = properties;
         this.machine = properties.xstateMachine;  // Saved for faster access.
-        this.outputHeaderShortname = this.machine.config.id + '_sm.h';
+        this.outputHeaderShortname = this.machine.config.id + '_sm.hpp';
         this.outputHeader = path.join(this.properties.destinationPath, this.outputHeaderShortname);
         this.outputCppCode = path.join(this.properties.destinationPath, this.machine.config.id + '_sm.cpp');
         this.outputTest = path.join(this.properties.destinationPath, this.machine.config.id + '_test.cpp');
@@ -52,17 +65,23 @@ export class Generator {
 
     genCppFiles() {
         for (const [template, outputFile] of [
-            [path.join(__dirname, 'base.template.h'), this.outputHeaderShortname],
-            [path.join(__dirname, 'base.template.cpp'), this.outputCppCode],
-            [path.join(__dirname, 'test.template.cpp'), this.outputTest],
+            [path.join(__dirname, 'templates', 'template_sm.hpp'), this.outputHeader],
+            [path.join(__dirname, 'templates', 'template_sm.cpp'), this.outputCppCode],
+            [path.join(__dirname, 'templates', 'template_test.cpp'), this.outputTest],
         ] as const) {
             const fileContents = fs.readFileSync(template, 'utf8');
-            var result = Sqrl.render(fileContents, {
+            var result = squirrelly.render(fileContents, {
                 machine: this.machine,
                 properties: this.properties,
                 generator: this
             });
+            //console.log(`process template ${template} to output ${outputFile}`);
+            const outputDir = path.dirname(outputFile);
+            if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir, { recursive: true });
+            }
             fs.writeFileSync(outputFile, result);
+            console.log(`done ${outputFile}`);
         }
     }
 
@@ -70,6 +89,7 @@ export class Generator {
         return str[0].toUpperCase() + str.substr(1).toLowerCase();
     }
 
+    // TODO maybe rename to className. class is a keyword in javascript
     class() {
         var name = this.machine.config.id;
         return this.capitalize(name) + "SM";
@@ -133,8 +153,10 @@ export class Generator {
             Object.keys(stateObj.on).forEach(eventName => {
                 var targetStates = stateObj.on[eventName];
                 targetStates.forEach(targetState => {
-                    targetState["actions"].forEach(action => {
-                        map.set(eventName + action.toString(), [eventName, action.toString()]);
+                    targetState.actions.forEach(action => {
+                        // TODO verify. do we need only action.type? what if action.exec != undefined?
+                        //map.set(eventName + action.toString(), [eventName, action.toString()]);
+                        map.set(eventName + action.type, [eventName, action.type]);
                     });
                 });
             });

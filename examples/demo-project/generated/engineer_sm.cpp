@@ -1,9 +1,9 @@
-/** 
+/**
  * This code is automatically generated using the Xstate to C++ code generator:
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  */
 
-#include "engineer_sm.h"
+#include "engineer_sm.hpp"
 
 namespace engineer_demo {
 
@@ -92,44 +92,44 @@ std::ostream& operator << (std::ostream& os, const EngineerSMTransitionPhase& ph
 }
 
 
-// static 
-const std::vector<EngineerSMTransitionToStatesPair>& 
+// static
+const std::vector<EngineerSMTransitionToStatesPair>&
 EngineerSMValidTransitionsFromSleepingState() {
     static const auto* transitions = new const std::vector<EngineerSMTransitionToStatesPair> {
-        { EngineerSMEvent::TIMER, { 
+        { EngineerSMEvent::TIMER, {
               EngineerSMState::working           } },
         };
     return *transitions;
 }
 
-// static 
-const std::vector<EngineerSMTransitionToStatesPair>& 
+// static
+const std::vector<EngineerSMTransitionToStatesPair>&
 EngineerSMValidTransitionsFromWorkingState() {
     static const auto* transitions = new const std::vector<EngineerSMTransitionToStatesPair> {
-        { EngineerSMEvent::HUNGRY, { 
+        { EngineerSMEvent::HUNGRY, {
               EngineerSMState::eating           } },
-        { EngineerSMEvent::TIRED, { 
+        { EngineerSMEvent::TIRED, {
               EngineerSMState::sleeping           } },
-        { EngineerSMEvent::ENOUGH, { 
+        { EngineerSMEvent::ENOUGH, {
               EngineerSMState::weekend           } },
         };
     return *transitions;
 }
 
-// static 
-const std::vector<EngineerSMTransitionToStatesPair>& 
+// static
+const std::vector<EngineerSMTransitionToStatesPair>&
 EngineerSMValidTransitionsFromEatingState() {
     static const auto* transitions = new const std::vector<EngineerSMTransitionToStatesPair> {
-        { EngineerSMEvent::TIMER, { 
+        { EngineerSMEvent::TIMER, {
               EngineerSMState::working           } },
-        { EngineerSMEvent::TIRED, { 
+        { EngineerSMEvent::TIRED, {
               EngineerSMState::sleeping           } },
         };
     return *transitions;
 }
 
-// static 
-const std::vector<EngineerSMTransitionToStatesPair>& 
+// static
+const std::vector<EngineerSMTransitionToStatesPair>&
 EngineerSMValidTransitionsFromWeekendState() {
     static const auto* transitions = new const std::vector<EngineerSMTransitionToStatesPair> {
         };

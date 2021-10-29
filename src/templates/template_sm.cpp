@@ -1,4 +1,4 @@
-/** 
+/**
  * This code is automatically generated using the Xstate to C++ code generator:
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
  */
@@ -83,12 +83,12 @@ std::ostream& operator << (std::ostream& os, const {{it.generator.class()}}Trans
 
 
 {{@foreach(it.machine.states) => key, val}}
-// static 
-const std::vector<{{it.generator.class()}}TransitionToStatesPair>& 
+// static
+const std::vector<{{it.generator.class()}}TransitionToStatesPair>&
 {{it.generator.class()}}ValidTransitionsFrom{{it.generator.capitalize(key)}}State() {
     static const auto* transitions = new const std::vector<{{it.generator.class()}}TransitionToStatesPair> {
     {{@each(it.generator.transitionsForState(key)) => pair, index}}
-    { {{it.generator.class()}}Event::{{pair[0]}}, { 
+    { {{it.generator.class()}}Event::{{pair[0]}}, {
       {{@each(pair[1]) => target, index}}
         {{it.generator.class()}}State::{{target}}
       {{/each}}

@@ -1,6 +1,6 @@
 // This test is automatically generated, do not edit.
 
-#include "engineer_sm.h"
+#include "engineer_sm.hpp"
 
 #include <gtest/gtest.h>
 
