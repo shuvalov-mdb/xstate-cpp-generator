@@ -1,4 +1,4 @@
-#include "engineer_sm.h"
+#include "generated/engineer_sm.hpp"
 
 #include <chrono>
 #include <thread>

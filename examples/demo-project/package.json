@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "build": "ts-node engineer_generate.ts"
+  }
+}

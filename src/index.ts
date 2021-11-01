@@ -1,2 +1,2 @@
-export {CppStateMachineGeneratorProperties, generateCpp} from './cpp_state_machine_generator'
+export {CppStateMachineGeneratorProperties, generateCpp} from './xstate-cpp-generator'
 

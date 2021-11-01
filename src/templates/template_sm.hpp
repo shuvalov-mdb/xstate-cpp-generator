@@ -1,4 +1,4 @@
-/** 
+/**
  * This header is automatically generated using the Xstate to C++ code generator:
  *    https://github.com/shuvalov-mdb/xstate-cpp-generator
  *    Copyright (c) 2020 Andrew Shuvalov
@@ -73,7 +73,7 @@ const std::vector<{{it.generator.class()}}TransitionToStatesPair>& {{it.generato
  * Enum to indicate the current state transition phase in callbacks. This enum is used only for logging
  * and is not part of any State Machine logic.
  */
-enum class {{it.generator.class()}}TransitionPhase { 
+enum class {{it.generator.class()}}TransitionPhase {
     UNDEFINED = 0,
     LEAVING_STATE,
     ENTERING_STATE,
@@ -92,7 +92,7 @@ template <typename SMSpec> class {{it.generator.class()}};  // Forward declarati
  */
 template <typename SMContext = std::nullptr_t>
 struct Default{{it.generator.class()}}Spec {
-    /** 
+    /**
      * Generic data structure stored in the State Machine to keep some user-defined state that can be modified
      * when transitions happen.
      */
@@ -126,20 +126,20 @@ struct Default{{it.generator.class()}}Spec {
  *  State machine as declared in Xstate library for {{it.generator.class()}}.
  *  SMSpec is a convenient template struct, which allows to specify various definitions used by generated code. In a simple
  *  case it's not needed and a convenient default is provided.
- * 
+ *
  *  State Machine is not an abstract class and can be used without subclassing at all,
  *  though its functionality will be limited in terms of callbacks.
  *  Even though it's a templated class, a default SMSpec is provided to make a simple
- *  State Machine without any customization. In the most simple form, a working 
+ *  State Machine without any customization. In the most simple form, a working
  *  {{it.generator.class()}} SM instance can be instantiated and used as in this example:
- * 
+ *
  *    {{it.generator.class()}}<> machine;
  *    auto currentState = machine.currentState();
 {{@each(it.generator.events()) => val, index}}
  *    {{it.generator.class()}}<>::{{it.generator.capitalize(val)}}Payload payload{{val}};      // ..and init payload with data
  *    machine.postEvent{{it.generator.capitalize(val)}} (std::move(payload{{val}}));
 {{/each}}
- * 
+ *
  *  Also see the generated unit tests in the example-* folders for more example code.
  */
 template <typename SMSpec = Default{{it.generator.class()}}Spec<std::nullptr_t>>
@@ -258,7 +258,7 @@ class {{it.generator.class()}} {
     virtual void logTransition(TransitionPhase phase, State currentState, State nextState) const;
 
     /**
-     * 'onLeavingState' callbacks are invoked right before entering a new state. The internal 
+     * 'onLeavingState' callbacks are invoked right before entering a new state. The internal
      * '_currentState' data still points to the current state.
      */
 {{@foreach(it.machine.states) => key, val}}
@@ -268,9 +268,9 @@ class {{it.generator.class()}} {
 {{/foreach}}
 
     /**
-     * 'onEnteringState' callbacks are invoked right before entering a new state. The internal 
+     * 'onEnteringState' callbacks are invoked right before entering a new state. The internal
      * '_currentState' data still points to the existing state.
-     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
+     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload
      *   override another calback from the 'onEntered*State' below.
      */
 {{@each(it.generator.allEventToStatePairs()) => pair, index}}
@@ -281,7 +281,7 @@ class {{it.generator.class()}} {
 {{/each}}
 
     /**
-     * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal 
+     * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal
      * '_currentState' data already points to the existing state.
      * It is guaranteed that the next transition will not start until this callback returns.
      * It is safe to call postEvent*() to trigger the next transition from this method.
@@ -370,7 +370,7 @@ inline void {{it.generator.class()}}<SMSpec>::postEvent{{it.generator.capitalize
 
 template<typename SMSpec>
 template<typename Payload>
-void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}}::State state, 
+void {{it.generator.class()}}<SMSpec>::_postEventHelper ({{it.generator.class()}}::State state,
     {{it.generator.class()}}::Event event, std::shared_ptr<Payload> payload) {
 
     // Step 1: Invoke the guard callback. TODO: implement.

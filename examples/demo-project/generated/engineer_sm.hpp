@@ -1,11 +1,13 @@
-/** 
+/**
  * This header is automatically generated using the Xstate to C++ code generator:
- *    https://github.com/shuvalov-mdb/xstate-cpp-generator , @author Andrew Shuvalov
+ *    https://github.com/shuvalov-mdb/xstate-cpp-generator
+ *    Copyright (c) 2020 Andrew Shuvalov
+ *    License: MIT https://opensource.org/licenses/MIT
  *
- * Please do not edit. If changes are needed, regenerate using the TypeScript template 'engineer.ts'.
- * Generated at Fri Oct 30 2020 16:38:31 GMT+0000 (Coordinated Universal Time) from Xstate definition 'engineer.ts'.
+ * Please do not edit. If changes are needed, regenerate using the TypeScript template 'engineer_generate.ts'.
+ * Generated at Fri Oct 29 2021 03:20:57 GMT+0200 (Central European Summer Time) from Xstate definition 'engineer_generate.ts'.
  * The simplest command line to run the generation:
- *     ts-node 'engineer.ts'
+ *     ts-node 'engineer_generate.ts'
  */
 
 #pragma once
@@ -74,7 +76,7 @@ const std::vector<EngineerSMTransitionToStatesPair>& EngineerSMValidTransitionsF
  * Enum to indicate the current state transition phase in callbacks. This enum is used only for logging
  * and is not part of any State Machine logic.
  */
-enum class EngineerSMTransitionPhase { 
+enum class EngineerSMTransitionPhase {
     UNDEFINED = 0,
     LEAVING_STATE,
     ENTERING_STATE,
@@ -93,7 +95,7 @@ template <typename SMSpec> class EngineerSM;  // Forward declaration to use in S
  */
 template <typename SMContext = std::nullptr_t>
 struct DefaultEngineerSMSpec {
-    /** 
+    /**
      * Generic data structure stored in the State Machine to keep some user-defined state that can be modified
      * when transitions happen.
      */
@@ -131,13 +133,13 @@ struct DefaultEngineerSMSpec {
  *  State machine as declared in Xstate library for EngineerSM.
  *  SMSpec is a convenient template struct, which allows to specify various definitions used by generated code. In a simple
  *  case it's not needed and a convenient default is provided.
- * 
+ *
  *  State Machine is not an abstract class and can be used without subclassing at all,
  *  though its functionality will be limited in terms of callbacks.
  *  Even though it's a templated class, a default SMSpec is provided to make a simple
- *  State Machine without any customization. In the most simple form, a working 
+ *  State Machine without any customization. In the most simple form, a working
  *  EngineerSM SM instance can be instantiated and used as in this example:
- * 
+ *
  *    EngineerSM<> machine;
  *    auto currentState = machine.currentState();
  *    EngineerSM<>::TimerPayload payloadTIMER;      // ..and init payload with data
@@ -148,7 +150,7 @@ struct DefaultEngineerSMSpec {
  *    machine.postEventTired (std::move(payloadTIRED));
  *    EngineerSM<>::EnoughPayload payloadENOUGH;      // ..and init payload with data
  *    machine.postEventEnough (std::move(payloadENOUGH));
- * 
+ *
  *  Also see the generated unit tests in the example-* folders for more example code.
  */
 template <typename SMSpec = DefaultEngineerSMSpec<std::nullptr_t>>
@@ -269,7 +271,7 @@ class EngineerSM {
     virtual void logTransition(TransitionPhase phase, State currentState, State nextState) const;
 
     /**
-     * 'onLeavingState' callbacks are invoked right before entering a new state. The internal 
+     * 'onLeavingState' callbacks are invoked right before entering a new state. The internal
      * '_currentState' data still points to the current state.
      */
     virtual void onLeavingSleepingState(State nextState) {
@@ -286,9 +288,9 @@ class EngineerSM {
     }
 
     /**
-     * 'onEnteringState' callbacks are invoked right before entering a new state. The internal 
+     * 'onEnteringState' callbacks are invoked right before entering a new state. The internal
      * '_currentState' data still points to the existing state.
-     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload 
+     * @param payload mutable payload, ownership remains with the caller. To take ownership of the payload
      *   override another calback from the 'onEntered*State' below.
      */
     virtual void onEnteringStateWorkingOnTIMER(State nextState, std::shared_ptr<TimerPayload> payload) {
@@ -309,7 +311,7 @@ class EngineerSM {
     }
 
     /**
-     * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal 
+     * 'onEnteredState' callbacks are invoked after SM moved to new state. The internal
      * '_currentState' data already points to the existing state.
      * It is guaranteed that the next transition will not start until this callback returns.
      * It is safe to call postEvent*() to trigger the next transition from this method.
@@ -461,7 +463,7 @@ inline void EngineerSM<SMSpec>::postEventEnough (std::shared_ptr<EngineerSM::Eno
 
 template<typename SMSpec>
 template<typename Payload>
-void EngineerSM<SMSpec>::_postEventHelper (EngineerSM::State state, 
+void EngineerSM<SMSpec>::_postEventHelper (EngineerSM::State state,
     EngineerSM::Event event, std::shared_ptr<Payload> payload) {
 
     // Step 1: Invoke the guard callback. TODO: implement.

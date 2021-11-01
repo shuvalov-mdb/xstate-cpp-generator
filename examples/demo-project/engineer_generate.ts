@@ -1,8 +1,8 @@
-//const CppGen = require('xstate-cpp-generator');
-import { generateCpp }  from '../src/cpp_state_machine_generator';
-const path = require('path');
-
+//import { generateCpp } from 'xstate-cpp-generator';
+import { generateCpp } from '../../src';
 import { Machine } from 'xstate';
+
+import * as path from 'path';
 
 const engineerMachine = Machine({
     id: 'engineer',
@@ -41,7 +41,7 @@ const engineerMachine = Machine({
 //CppGen.
 generateCpp({
     xstateMachine: engineerMachine,
-    destinationPath: "",
+    destinationPath: "generated/",
     namespace: "engineer_demo",
     pathForIncludes: "",
     tsScriptName: path.basename(__filename)
