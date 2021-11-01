@@ -1,7 +1,9 @@
-import { generateCpp }  from '../src/cpp_state_machine_generator';
-const path = require('path');
+//import { generateCpp } from 'xstate-cpp-generator';
+import { generateCpp } from '../../src';
 
 import { Machine, createMachine, assign } from 'xstate';
+
+import * as path from 'path';
 
 const fetchMachine = Machine({
     id: 'fetch',
@@ -34,7 +36,7 @@ const fetchMachine = Machine({
 
 generateCpp({
   xstateMachine: fetchMachine,
-  destinationPath: "",
+  destinationPath: "generated/",
   namespace: "mongo",
   pathForIncludes: "example-fetch/",
   tsScriptName: path.basename(__filename)
