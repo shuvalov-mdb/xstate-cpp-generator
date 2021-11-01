@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "generate": "ts-node ping_pong.ts"
+  }
+}

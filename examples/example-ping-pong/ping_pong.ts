@@ -3,10 +3,12 @@
 // has actions like 'spawnPongActor', which are defined
 // elsewhere. 
 
-import { generateCpp }  from '../src/cpp_state_machine_generator';
-const path = require('path');
+//import { generateCpp } from 'xstate-cpp-generator';
+import { generateCpp } from '../../src';
 
 import { Machine, createMachine, assign } from 'xstate';
+
+import * as path from 'path';
 
 const pingPongMachine = Machine({
     id: 'ping',
@@ -29,7 +31,7 @@ const pingPongMachine = Machine({
 
 generateCpp({
     xstateMachine: pingPongMachine,
-    destinationPath: "",
+    destinationPath: "generated/",
     namespace: "mongo",
     pathForIncludes: "example-ping-pong/",
     tsScriptName: path.basename(__filename)
