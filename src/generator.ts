@@ -22,7 +22,16 @@
 // SOFTWARE.
 
 //import * as xstate from 'xstate';
-import * as squirrelly from 'squirrelly';
+
+// TODO replace squirrelly with dot?
+// 10 KByte bundle size
+// bug https://github.com/squirrellyjs/squirrelly/issues/237
+const templateEngineName = 'squirrelly';
+import * as templateEngine from 'squirrelly';
+
+// 4 KByte bundle size
+//const templateEngineName = 'dot';
+//import * as templateEngine from 'dot';
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -41,6 +50,17 @@ export interface CppStateMachineGeneratorProperties {
     /** Name of the script containing the model for better logging */
     tsScriptName?: string;
 }
+
+const renderTemplate: (string, object) => string = (
+    (templateEngineName as any) == 'dot' ?
+        function renderTemplateDot(templateText, templateData) {
+            const renderTemplate = (templateEngine as any).template(templateText);
+            return renderTemplate(templateData);
+        }
+    : (templateEngineName as any) == 'squirrelly' ?
+        (templateEngine as any).render
+    : null
+);
 
 export class Generator {
     readonly properties: CppStateMachineGeneratorProperties;
@@ -69,18 +89,24 @@ export class Generator {
             [path.join(__dirname, 'templates', 'template_sm.cpp'), this.outputCppCode],
             [path.join(__dirname, 'templates', 'template_test.cpp'), this.outputTest],
         ] as const) {
-            const fileContents = fs.readFileSync(template, 'utf8');
-            var result = squirrelly.render(fileContents, {
+
+            const templateText = fs.readFileSync(template, 'utf8');
+
+            const templateData = {
                 machine: this.machine,
                 properties: this.properties,
                 generator: this
-            });
+            };
+
+            const resultText = renderTemplate(templateText, templateData);
+
             //console.log(`process template ${template} to output ${outputFile}`);
             const outputDir = path.dirname(outputFile);
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
-            fs.writeFileSync(outputFile, result);
+
+            fs.writeFileSync(outputFile, resultText);
             console.log(`done ${outputFile}`);
         }
     }
